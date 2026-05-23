@@ -17,13 +17,9 @@ backend/.env
 # Conserver l'exemple
 !backend/.env.example
 
-# ── Données workspace (données comptables locales) ────────────────────────────
-# Décommente si tu veux exclure les données du dépôt :
-# workspace/
-
-# Fichiers de données sensibles à exclure
-workspace/attachments/
-workspace/_active.json
+# ── Workspace comptable (dépôt d'exploitation séparé) ────────────────────────
+# Ce dossier possède son propre .git — il n'appartient pas au repo code.
+workspace/
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
