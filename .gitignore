@@ -1,0 +1,65 @@
+# ── Dépendances ───────────────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+
+# ── Build / dist ──────────────────────────────────────────────────────────────
+dist/
+**/dist/
+build/
+**/build/
+*.tsbuildinfo
+
+# ── Variables d'environnement (secrets) ───────────────────────────────────────
+.env
+.env.local
+.env.*.local
+backend/.env
+# Conserver l'exemple
+!backend/.env.example
+
+# ── Données workspace (données comptables locales) ────────────────────────────
+# Décommente si tu veux exclure les données du dépôt :
+# workspace/
+
+# Fichiers de données sensibles à exclure
+workspace/attachments/
+workspace/_active.json
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+**/logs/
+
+# ── Couverture de tests ───────────────────────────────────────────────────────
+coverage/
+**/coverage/
+.nyc_output/
+
+# ── Fichiers temporaires / cache ──────────────────────────────────────────────
+*.tmp
+*.temp
+.cache/
+**/.cache/
+.vite/
+**/.vite/
+
+# ── Fichiers de sortie de tests (artefacts locaux) ───────────────────────────
+backend/test_output.txt
+backend/test_results.txt
+
+# ── Système d'exploitation ────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Éditeurs ──────────────────────────────────────────────────────────────────
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates

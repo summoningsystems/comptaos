@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Palette sombre (défaut) ───────────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+  --vscode-bg:         #1e1e1e;
+  --vscode-sidebar:    #252526;
+  --vscode-panel:      #2d2d30;
+  --vscode-border:     #3c3c3c;
+  --vscode-accent:     #0078d4;
+  --vscode-text:       #d4d4d4;
+  --vscode-muted:      #858585;
+  --vscode-highlight:  #264f78;
+  --vscode-tab:        #2d2d30;
+  --vscode-tab-active: #1e1e1e;
+}
+
+/* ── Palette claire ────────────────────────────────────────────────────────── */
+html.light {
+  color-scheme: light;
+  --vscode-bg:         #ffffff;
+  --vscode-sidebar:    #f3f3f3;
+  --vscode-panel:      #fafafa;
+  --vscode-border:     #e0e0e0;
+  --vscode-accent:     #0078d4;
+  --vscode-text:       #1e1e1e;
+  --vscode-muted:      #717171;
+  --vscode-highlight:  #cfe8ff;
+  --vscode-tab:        #ececec;
+  --vscode-tab-active: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 13px;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #424242;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* ── Print / PDF export ──────────────────────────────────────────────────── */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    font-family: "Arial", sans-serif;
+    overflow: visible !important;
+    height: auto !important;
+  }
+  #root {
+    height: auto !important;
+  }
+  /* Cacher tout sauf la zone de rapport active */
+  .no-print,
+  nav,
+  header,
+  [class*="TabBar"],
+  [class*="StatusBar"],
+  [class*="Sidebar"] {
+    display: none !important;
+  }
+  /* Forcer les couleurs claires */
+  [class*="vscode-"],
+  [class*="bg-vscode"] {
+    background: white !important;
+    color: black !important;
+    border-color: #ccc !important;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 4px 8px;
+  }
+  .text-green-400, .text-green-300 { color: #15803d !important; }
+  .text-red-400, .text-red-300     { color: #dc2626 !important; }
+  .text-yellow-400, .text-yellow-300 { color: #b45309 !important; }
+  .text-blue-400, .text-blue-300   { color: #1d4ed8 !important; }
+  a { color: black !important; text-decoration: none; }
+  @page { margin: 1.5cm; }
+}

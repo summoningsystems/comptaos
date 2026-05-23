@@ -1,0 +1,116 @@
+import { loadAllTransactions } from "./transactionService.js";
+import { loadManualRecurring } from "./manualRecurringService.js";
+import { DashboardData } from "../types/index.js";
+
+/** Construit les données agrégées pour le dashboard. */
+export async function computeDashboard(): Promise<DashboardData> {
+  let recurring: ReturnType<typeof loadManualRecurring> = [];
+  try { recurring = loadManualRecurring(); } catch { /* ignore */ }
+  const [transactions] = await Promise.all([
+    loadAllTransactions(),
+  ]);
+  const currentYear = new Date().getFullYear().toString();
+
+  const monthlyMap: Record<string, { revenue: number; expenses: number }> = {};
+  const categoryMap: Record<string, number> = {};
+  const accountSet = new Set<string>();
+  let vatEstimate = 0;
+  let treasury = 0;
+
+  for (const txn of transactions) {
+    if (txn.status === "rejected") continue;
+    const month = txn.date.slice(0, 7); // YYYY-MM
+    if (!monthlyMap[month]) monthlyMap[month] = { revenue: 0, expenses: 0 };
+
+    if (txn.amount_ttc >= 0) {
+      monthlyMap[month].revenue += txn.amount_ttc;
+    } else {
+      monthlyMap[month].expenses += Math.abs(txn.amount_ttc);
+    }
+
+    if (txn.amount_ttc < 0) {
+      categoryMap[txn.category] = (categoryMap[txn.category] ?? 0) + Math.abs(txn.amount_ttc);
+      vatEstimate -= txn.vat;
+    } else {
+      vatEstimate += txn.vat;
+    }
+
+    treasury += txn.amount_ttc;
+    if (txn.account) accountSet.add(txn.account);
+  }
+
+  const months = Object.keys(monthlyMap).sort();
+  const totalRevenue  = months.reduce((s, m) => s + monthlyMap[m].revenue,  0);
+  const totalExpenses = months.reduce((s, m) => s + monthlyMap[m].expenses, 0);
+  const netResult = totalRevenue - totalExpenses;
+  const isEstimate = netResult > 0 ? netResult * 0.25 : 0;
+
+  // Runway : trésorerie / moyenne dépenses 3 derniers mois
+  const recentMonths = months.slice(-3);
+  const avgMonthlyExpenses = recentMonths.length > 0
+    ? recentMonths.reduce((s, m) => s + monthlyMap[m].expenses, 0) / recentMonths.length
+    : 0;
+  const avgMonthlyRevenue = recentMonths.length > 0
+    ? recentMonths.reduce((s, m) => s + monthlyMap[m].revenue, 0) / recentMonths.length
+    : 0;
+  const runwayMonths = avgMonthlyExpenses > 0
+    ? parseFloat((treasury / avgMonthlyExpenses).toFixed(1))
+    : 999;
+
+  const miscCount = transactions.filter(
+    (t) => t.category === "misc" && t.status !== "rejected"
+  ).length;
+  const unjustifiedCount = transactions.filter(
+    (t) => t.justified === false && t.status !== "rejected"
+  ).length;
+
+  // ── Solde cumulé par mois ──────────────────────────────────────────────────
+  let cumulative = 0;
+  const monthly_balance = months.map((m) => {
+    cumulative += monthlyMap[m].revenue - monthlyMap[m].expenses;
+    return { month: m, amount: parseFloat(cumulative.toFixed(2)) };
+  });
+
+  // ── Prévisions 6 mois à partir des frais récurrents + moyenne revenus ─────
+  const forecast: { month: string; balance: number; projected: boolean }[] = [];
+  // Reprendre le dernier solde connu
+  let forecastBalance = treasury;
+  const now = new Date();
+  // Charges récurrentes mensuelles issues du service
+  const monthlyRecurringExpenses = recurring
+    .filter((r) => r.active)
+    .reduce((sum, r) => {
+      const monthly =
+        r.frequency === "mensuel" ? r.amount
+        : r.frequency === "trimestriel" ? r.amount / 3
+        : r.amount / 12;
+      return sum + monthly;
+    }, 0);
+
+  for (let i = 1; i <= 6; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    forecastBalance += avgMonthlyRevenue - (monthlyRecurringExpenses || avgMonthlyExpenses);
+    forecast.push({ month: key, balance: parseFloat(forecastBalance.toFixed(2)), projected: true });
+  }
+
+  return {
+    monthly_revenue:  months.map((m) => ({ month: m, amount: parseFloat(monthlyMap[m].revenue.toFixed(2)) })),
+    monthly_expenses: months.map((m) => ({ month: m, amount: parseFloat(monthlyMap[m].expenses.toFixed(2)) })),
+    vat_estimate:     parseFloat(vatEstimate.toFixed(2)),
+    treasury:         parseFloat(treasury.toFixed(2)),
+    top_categories:   Object.entries(categoryMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([category, amount]) => ({ category, amount: parseFloat(amount.toFixed(2)) })),
+    net_result:        parseFloat(netResult.toFixed(2)),
+    is_estimate:       parseFloat(isEstimate.toFixed(2)),
+    runway_months:     runwayMonths,
+    misc_count:        miscCount,
+    unjustified_count: unjustifiedCount,
+    current_year:      currentYear,
+    monthly_balance,
+    forecast,
+    accounts:          Array.from(accountSet).sort(),
+  };
+}

@@ -1,0 +1,334 @@
+import { useEffect, useState } from "react";
+import {
+  AreaChart, Area,
+  BarChart, Bar,
+  XAxis, YAxis,
+  CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine,
+  ComposedChart, Line,
+} from "recharts";
+import { fetchDashboard, fetchTransactions } from "../../api/client";
+import { DashboardData, Transaction } from "../../types";
+import { format } from "date-fns";
+import { fr } from "date-fns/locale";
+
+function fmt(n: number) {
+  return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+}
+
+function fmtMonth(m: string) {
+  try { return format(new Date(`${m}-01`), "MMM yy", { locale: fr }); }
+  catch { return m; }
+}
+
+function KpiCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+  return (
+    <div className="bg-vscode-sidebar border border-vscode-border rounded-lg p-4 flex flex-col gap-1">
+      <span className="text-vscode-muted text-[11px] uppercase tracking-wider">{label}</span>
+      <span className={`text-2xl font-semibold font-mono ${accent ?? "text-vscode-text"}`}>{value}</span>
+      {sub && <span className="text-vscode-muted text-xs">{sub}</span>}
+    </div>
+  );
+}
+
+export function TreasuryView() {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([fetchDashboard(), fetchTransactions()])
+      .then(([d, t]) => {
+        setData(d);
+        setTransactions(Array.isArray(t) ? t : []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-full text-vscode-muted text-sm">Chargement…</div>;
+  }
+  if (!data) {
+    return <div className="flex items-center justify-center h-full text-vscode-muted text-sm">Impossible de charger les données.</div>;
+  }
+
+  // ── Graphique combiné historique + prévisions ──────────────────────────────
+  const histPoints = (data.monthly_balance ?? []).map((b) => ({
+    month: fmtMonth(b.month),
+    solde: b.amount,
+    type: "réel",
+  }));
+
+  // Dernier solde réel comme point de jonction
+  const lastReal = histPoints.at(-1);
+  const forecastPoints = (data.forecast ?? []).map((f) => ({
+    month: fmtMonth(f.month),
+    prevision: f.balance,
+    type: "prévision",
+  }));
+
+  // Pour le graphique combiné : fusionner avec solde + prevision
+  const combinedData: { month: string; solde?: number; prevision?: number }[] = [
+    ...histPoints.map((p) => ({ month: p.month, solde: p.solde })),
+    // Point de jonction : dernier réel = aussi début prévision
+    ...(lastReal
+      ? [{ month: lastReal.month, solde: lastReal.solde, prevision: lastReal.solde }]
+      : []),
+    ...forecastPoints.map((p) => ({ month: p.month, prevision: p.prevision })),
+  ];
+  // Dédupliquer le point de jonction
+  const seen = new Set<string>();
+  const chartData = combinedData.filter((p) => {
+    if (seen.has(p.month + JSON.stringify(p))) return false;
+    seen.add(p.month + JSON.stringify(p));
+    return true;
+  });
+
+  // ── Table mensuelle ────────────────────────────────────────────────────────
+  const monthSet = new Set([
+    ...(data.monthly_revenue ?? []).map((r) => r.month),
+    ...(data.monthly_expenses ?? []).map((e) => e.month),
+  ]);
+  let cumulSolde = 0;
+  const monthlyTable = Array.from(monthSet).sort().map((m) => {
+    const rev = data.monthly_revenue.find((r) => r.month === m)?.amount ?? 0;
+    const exp = data.monthly_expenses.find((r) => r.month === m)?.amount ?? 0;
+    const net = rev - exp;
+    cumulSolde += net;
+    return { month: m, rev, exp, net, cumul: cumulSolde };
+  });
+
+  // ── Burn rate (moyenne dépenses 3 derniers mois) ───────────────────────────
+  const recent3 = monthlyTable.slice(-3);
+  const burnRate = recent3.length > 0
+    ? recent3.reduce((s, m) => s + m.exp, 0) / recent3.length
+    : 0;
+  const avgRev3 = recent3.length > 0
+    ? recent3.reduce((s, m) => s + m.rev, 0) / recent3.length
+    : 0;
+  const runway = burnRate > 0 ? data.treasury / burnRate : 999;
+
+  // ── 15 dernières transactions non rejetées ─────────────────────────────────
+  const recentTxns = transactions
+    .filter((t) => t.status !== "rejected")
+    .slice(0, 15);
+
+  // ── Taux de couverture (revenus / dépenses) ────────────────────────────────
+  const totalRev = (data.monthly_revenue ?? []).reduce((s, r) => s + r.amount, 0);
+  const totalExp = (data.monthly_expenses ?? []).reduce((s, r) => s + r.amount, 0);
+  const coverage = totalExp > 0 ? (totalRev / totalExp) * 100 : 100;
+
+  // ── Flux mensuel bar chart ─────────────────────────────────────────────────
+  const fluxData = monthlyTable.map((m) => ({
+    month: fmtMonth(m.month),
+    revenus: parseFloat(m.rev.toFixed(2)),
+    dépenses: parseFloat(m.exp.toFixed(2)),
+    net: parseFloat(m.net.toFixed(2)),
+  }));
+
+  return (
+    <div className="flex flex-col h-full overflow-auto p-6 gap-6">
+      <h2 className="text-vscode-text text-sm font-semibold">Trésorerie temps réel</h2>
+
+      {/* ── KPIs principaux ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          label="Solde actuel"
+          value={fmt(data.treasury)}
+          accent={data.treasury >= 0 ? "text-green-400" : "text-red-400"}
+        />
+        <KpiCard
+          label="Burn rate / mois"
+          value={fmt(burnRate)}
+          sub="moyenne dépenses 3 derniers mois"
+          accent="text-orange-400"
+        />
+        <KpiCard
+          label="Runway estimé"
+          value={runway >= 99 ? "∞" : `${runway.toFixed(1)} mois`}
+          sub={runway < 3 ? "⚠️ Critique" : runway < 6 ? "Attention" : "Bonne santé"}
+          accent={runway < 3 ? "text-red-400" : runway < 6 ? "text-yellow-400" : "text-green-400"}
+        />
+        <KpiCard
+          label="Taux de couverture"
+          value={`${coverage.toFixed(0)} %`}
+          sub="revenus / dépenses (cumul)"
+          accent={coverage >= 100 ? "text-green-400" : "text-red-400"}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          label="CA total"
+          value={fmt(totalRev)}
+          accent="text-green-400"
+        />
+        <KpiCard
+          label="Charges totales"
+          value={fmt(totalExp)}
+          accent="text-red-400"
+        />
+        <KpiCard
+          label="Résultat net"
+          value={(totalRev - totalExp >= 0 ? "+" : "") + fmt(totalRev - totalExp)}
+          accent={(totalRev - totalExp) >= 0 ? "text-green-400" : "text-red-400"}
+        />
+        <KpiCard
+          label="Revenu moyen / mois"
+          value={fmt(avgRev3)}
+          sub="moyenne 3 derniers mois"
+          accent="text-blue-400"
+        />
+      </div>
+
+      {/* ── Évolution solde + prévisions ────────────────────────────────── */}
+      <div className="bg-vscode-sidebar border border-vscode-border rounded-lg p-4">
+        <h3 className="text-vscode-muted text-xs uppercase tracking-wider mb-4">
+          Évolution du solde cumulé + prévisions 6 mois
+        </h3>
+        <ResponsiveContainer width="100%" height={220}>
+          <ComposedChart data={chartData}>
+            <defs>
+              <linearGradient id="soldGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#0078d4" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#0078d4" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#3c3c3c" />
+            <XAxis dataKey="month" tick={{ fill: "#858585", fontSize: 11 }} />
+            <YAxis tick={{ fill: "#858585", fontSize: 11 }} />
+            <Tooltip
+              contentStyle={{ background: "#252526", border: "1px solid #3c3c3c", fontSize: 12 }}
+              labelStyle={{ color: "#d4d4d4" }}
+              formatter={(v: number, name: string) => [fmt(v), name]}
+            />
+            <ReferenceLine y={0} stroke="#3c3c3c" strokeWidth={1} />
+            <Area
+              type="monotone"
+              dataKey="solde"
+              stroke="#0078d4"
+              fill="url(#soldGrad)"
+              strokeWidth={2}
+              dot={false}
+              name="Solde réel"
+              connectNulls
+            />
+            <Line
+              type="monotone"
+              dataKey="prevision"
+              stroke="#7c3aed"
+              strokeWidth={2}
+              strokeDasharray="5 4"
+              dot={false}
+              name="Prévision"
+              connectNulls
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+        <div className="flex gap-4 mt-2 text-[11px] text-vscode-muted">
+          <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 bg-blue-500"></span>Solde réel</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 bg-purple-500" style={{borderTop: "2px dashed #7c3aed", height: 0}}></span>Prévision</span>
+        </div>
+      </div>
+
+      {/* ── Flux mensuels (bar chart) ────────────────────────────────────── */}
+      {fluxData.length > 0 && (
+        <div className="bg-vscode-sidebar border border-vscode-border rounded-lg p-4">
+          <h3 className="text-vscode-muted text-xs uppercase tracking-wider mb-4">Flux mensuels</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={fluxData} barSize={12}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#3c3c3c" />
+              <XAxis dataKey="month" tick={{ fill: "#858585", fontSize: 11 }} />
+              <YAxis tick={{ fill: "#858585", fontSize: 11 }} />
+              <Tooltip
+                contentStyle={{ background: "#252526", border: "1px solid #3c3c3c", fontSize: 12 }}
+                labelStyle={{ color: "#d4d4d4" }}
+                formatter={(v: number, name: string) => [fmt(v), name]}
+              />
+              <ReferenceLine y={0} stroke="#5c5c5c" />
+              <Bar dataKey="revenus" fill="#16a34a" name="Revenus" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="dépenses" fill="#dc2626" name="Dépenses" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="net" fill="#0078d4" name="Flux net" radius={[2, 2, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ── Table mensuelle détaillée ──────────────────────────────────── */}
+        <div className="bg-vscode-sidebar border border-vscode-border rounded-lg p-4">
+          <h3 className="text-vscode-muted text-xs uppercase tracking-wider mb-3">Synthèse mensuelle</h3>
+          <div className="overflow-auto max-h-64">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-vscode-muted border-b border-vscode-border">
+                  <th className="text-left py-1 pr-3">Mois</th>
+                  <th className="text-right pr-3">Revenus</th>
+                  <th className="text-right pr-3">Dépenses</th>
+                  <th className="text-right pr-3">Flux net</th>
+                  <th className="text-right">Solde cumulé</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...monthlyTable].reverse().map((m) => (
+                  <tr key={m.month} className="border-b border-vscode-border/40 hover:bg-vscode-panel/40">
+                    <td className="py-1 pr-3 text-vscode-text">{fmtMonth(m.month)}</td>
+                    <td className="text-right pr-3 text-green-400">{fmt(m.rev)}</td>
+                    <td className="text-right pr-3 text-red-400">{fmt(m.exp)}</td>
+                    <td className={`text-right pr-3 font-mono ${m.net >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {m.net >= 0 ? "+" : ""}{fmt(m.net)}
+                    </td>
+                    <td className={`text-right font-mono ${m.cumul >= 0 ? "text-blue-400" : "text-red-400"}`}>
+                      {fmt(m.cumul)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── Dernières transactions ──────────────────────────────────────── */}
+        <div className="bg-vscode-sidebar border border-vscode-border rounded-lg p-4">
+          <h3 className="text-vscode-muted text-xs uppercase tracking-wider mb-3">Derniers mouvements</h3>
+          <div className="overflow-auto max-h-64 flex flex-col gap-1">
+            {recentTxns.length === 0 ? (
+              <p className="text-vscode-muted text-xs">Aucune transaction.</p>
+            ) : (
+              recentTxns.map((t) => (
+                <div key={t.id} className="flex items-center justify-between py-1 border-b border-vscode-border/40 gap-2">
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-vscode-text text-xs truncate max-w-[220px]" title={t.label}>{t.label}</span>
+                    <span className="text-vscode-muted text-[10px]">{t.date} · {t.category}</span>
+                  </div>
+                  <span className={`text-xs font-mono shrink-0 ${t.amount_ttc >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    {t.amount_ttc >= 0 ? "+" : ""}{fmt(t.amount_ttc)}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Prévisions mois par mois ─────────────────────────────────────── */}
+      {(data.forecast ?? []).length > 0 && (
+        <div className="bg-vscode-sidebar border border-vscode-border rounded-lg p-4">
+          <h3 className="text-vscode-muted text-xs uppercase tracking-wider mb-3">Prévisions 6 mois</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {data.forecast.map((f) => (
+              <div key={f.month} className="bg-vscode-panel border border-vscode-border rounded p-3 flex flex-col gap-1">
+                <span className="text-vscode-muted text-[10px] uppercase">{fmtMonth(f.month)}</span>
+                <span className={`text-sm font-mono font-semibold ${f.balance >= 0 ? "text-blue-400" : "text-red-400"}`}>
+                  {fmt(f.balance)}
+                </span>
+                <span className="text-[10px] text-purple-400">prévision</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
