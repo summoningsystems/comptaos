@@ -101,6 +101,21 @@ export interface OutgoingInvoice {
   notes?: string;
 }
 
+export interface Quote {
+  id: string;
+  number: string;
+  client: string;
+  date: string;
+  validUntil: string;
+  description: string;
+  amount_ht: number;
+  vat_rate: number;
+  amount_ttc: number;
+  status: "draft" | "sent" | "accepted" | "refused" | "converted";
+  notes?: string;
+  invoiceId?: string;
+}
+
 export interface TreasuryAlert {
   threshold: number;
   enabled: boolean;

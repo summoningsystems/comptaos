@@ -87,7 +87,22 @@ export interface Invoice {
   transaction_id?: string;
 }
 
-export type TabType = "editor" | "dashboard" | "import" | "transactions" | "ocr" | "reports" | "recurring" | "invoices" | "settings" | "tiers" | "vat" | "budgets" | "spreadsheets" | "history" | "journal" | "alerts" | "templates" | "reconcile" | "treasury" | "export" | "profitloss";
+export type TabType = "editor" | "dashboard" | "import" | "transactions" | "ocr" | "reports" | "recurring" | "invoices" | "quotes" | "settings" | "tiers" | "vat" | "budgets" | "spreadsheets" | "history" | "journal" | "alerts" | "templates" | "reconcile" | "treasury" | "export" | "profitloss" | "plugins";
+
+export interface Quote {
+  id: string;
+  number: string;
+  client: string;
+  date: string;
+  validUntil: string;
+  description: string;
+  amount_ht: number;
+  vat_rate: number;
+  amount_ttc: number;
+  status: "draft" | "sent" | "accepted" | "refused" | "converted";
+  notes?: string;
+  invoiceId?: string; // si converti en facture
+}
 
 export interface CategoryRule {
   id: string;
@@ -113,6 +128,24 @@ export interface OutgoingInvoice {
 export interface TreasuryAlert {
   threshold: number;
   enabled: boolean;
+}
+
+export interface CompanyProfile {
+  name: string;
+  legalForm?: string;
+  siren?: string;
+  vatNumber?: string;
+  capital?: string;
+  rcs?: string;
+  address?: string;
+  postalCode?: string;
+  city?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  iban?: string;
+  bankName?: string;
+  onboardingDone?: boolean;
 }
 
 export type AiProvider = "anthropic" | "openai" | "github-models" | "ollama";

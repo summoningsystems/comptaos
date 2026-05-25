@@ -92,6 +92,14 @@ export function ProfitLossView() {
         >
           {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
         </select>
+        <a
+          href={`/api/reports/pl-pdf?year=${year}`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-vscode-muted hover:text-vscode-text border border-vscode-border rounded px-3 py-1.5 flex items-center gap-1"
+        >
+          📄 Exporter PDF
+        </a>
       </div>
 
       {/* KPIs */}

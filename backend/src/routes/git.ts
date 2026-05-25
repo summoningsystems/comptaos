@@ -1,5 +1,10 @@
 import { FastifyInstance } from "fastify";
-import { getLog, getDiff, hasRepo } from "../services/gitService.js";
+import {
+  getLog, getDiff, hasRepo,
+  getSyncStatus, syncPush, syncPull,
+  testRemoteConnection, writeSyncConfig, deleteSyncConfig,
+  type GitSyncConfig,
+} from "../services/gitService.js";
 import { getWorkspaceRoot } from "../services/fileSystem.js";
 
 export async function gitRoutes(app: FastifyInstance) {
@@ -27,5 +32,65 @@ export async function gitRoutes(app: FastifyInstance) {
     }
     const diff = await getDiff(getWorkspaceRoot(), hash);
     return reply.send({ diff });
+  });
+
+  // ── Synchronisation distante ─────────────────────────────────────────────
+
+  /** GET /api/git/sync — Statut de synchronisation */
+  app.get("/sync", async (_req, reply) => {
+    const status = await getSyncStatus(getWorkspaceRoot());
+    return reply.send(status);
+  });
+
+  /** POST /api/git/sync/configure — Enregistre la config et teste la connexion */
+  app.post<{ Body: GitSyncConfig }>("/sync/configure", async (req, reply) => {
+    const { provider, remoteUrl, token, branch } = req.body;
+    if (!provider || !remoteUrl || !token || !branch) {
+      return reply.status(400).send({ error: "Champs requis : provider, remoteUrl, token, branch" });
+    }
+    // Valider l'URL
+    try { new URL(remoteUrl); } catch {
+      return reply.status(400).send({ error: "URL invalide" });
+    }
+    // Tester la connexion avant de sauvegarder
+    const test = await testRemoteConnection(getWorkspaceRoot(), { provider, remoteUrl, token, branch });
+    if (!test.ok) {
+      return reply.status(422).send({ error: `Connexion échouée : ${test.error}` });
+    }
+    await writeSyncConfig(getWorkspaceRoot(), { provider, remoteUrl, token, branch });
+    return reply.send({ ok: true });
+  });
+
+  /** POST /api/git/sync/test — Teste la connexion sans sauvegarder */
+  app.post<{ Body: GitSyncConfig }>("/sync/test", async (req, reply) => {
+    const { provider, remoteUrl, token, branch } = req.body;
+    if (!remoteUrl || !token) {
+      return reply.status(400).send({ error: "remoteUrl et token requis" });
+    }
+    try { new URL(remoteUrl); } catch {
+      return reply.status(400).send({ error: "URL invalide" });
+    }
+    const result = await testRemoteConnection(getWorkspaceRoot(), {
+      provider: provider ?? "custom", remoteUrl, token, branch: branch ?? "main",
+    });
+    return reply.send(result);
+  });
+
+  /** POST /api/git/sync/push — Pousse vers le remote */
+  app.post("/sync/push", async (_req, reply) => {
+    const result = await syncPush(getWorkspaceRoot());
+    return reply.status(result.ok ? 200 : 422).send(result);
+  });
+
+  /** POST /api/git/sync/pull — Récupère depuis le remote */
+  app.post("/sync/pull", async (_req, reply) => {
+    const result = await syncPull(getWorkspaceRoot());
+    return reply.status(result.ok ? 200 : 422).send(result);
+  });
+
+  /** DELETE /api/git/sync — Supprime la configuration de synchronisation */
+  app.delete("/sync", async (_req, reply) => {
+    await deleteSyncConfig(getWorkspaceRoot());
+    return reply.send({ ok: true });
   });
 }

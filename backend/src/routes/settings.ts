@@ -8,10 +8,13 @@ import {
   saveAiConfig,
   loadBudgets,
   saveBudgets,
+  loadCompanyProfile,
+  saveCompanyProfile,
   CategoryRule,
   TreasuryAlert,
   AiConfig,
   CategoryBudget,
+  CompanyProfile,
 } from "../services/settingsService.js";
 
 export async function settingsRoutes(app: FastifyInstance) {
@@ -67,6 +70,17 @@ export async function settingsRoutes(app: FastifyInstance) {
   // PUT /api/settings/budgets
   app.put<{ Body: CategoryBudget[] }>("/budgets", async (req, reply) => {
     saveBudgets(req.body);
+    return reply.send({ ok: true });
+  });
+
+  // GET /api/settings/profile
+  app.get("/profile", async (_req, reply) => {
+    return reply.send(loadCompanyProfile());
+  });
+
+  // PUT /api/settings/profile
+  app.put<{ Body: CompanyProfile }>("/profile", async (req, reply) => {
+    saveCompanyProfile(req.body);
     return reply.send({ ok: true });
   });
 }

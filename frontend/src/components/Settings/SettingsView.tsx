@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { CategoryRule, TreasuryAlert, Category, AiConfig, AiConfigStatus, AiProvider } from "../../types";
+import { CategoryRule, TreasuryAlert, Category, AiConfig, AiConfigStatus, AiProvider, CompanyProfile } from "../../types";
+import { GitSyncPanel } from "./GitSyncPanel";
+import { api } from "../../api/client";
 import {
   fetchCategoryRules,
   saveCategoryRules,
@@ -7,6 +9,8 @@ import {
   saveTreasuryAlert,
   fetchAiConfig,
   saveAiConfig,
+  fetchCompanyProfile,
+  saveCompanyProfile,
 } from "../../api/client";
 
 const CATEGORIES: Category[] = [
@@ -35,26 +39,40 @@ export function SettingsView() {
   const [alert, setAlert] = useState<TreasuryAlert>({ threshold: 5000, enabled: false });
   const [aiStatus, setAiStatus] = useState<AiConfigStatus>({ configured: false });
   const [aiForm, setAiForm] = useState<AiConfig>({ provider: "github-models", apiKey: "", model: "gpt-4o-mini" });
+  const [profile, setProfile] = useState<CompanyProfile>({ name: "" });
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showMistralKey, setShowMistralKey] = useState(false);
+
+  // Chiffrement
+  const [encEnabled, setEncEnabled] = useState(false);
+  const [encPassphrase, setEncPassphrase] = useState("");
+  const [encConfirm, setEncConfirm] = useState("");
+  const [encMsg, setEncMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [encLoading, setEncLoading] = useState(false);
 
   // Form pour nouvelle règle
   const [newPattern, setNewPattern] = useState("");
   const [newCategory, setNewCategory] = useState<Category>("misc");
 
   useEffect(() => {
-    Promise.all([fetchCategoryRules(), fetchTreasuryAlert(), fetchAiConfig()])
-      .then(([r, a, ai]) => {
+    Promise.all([fetchCategoryRules(), fetchTreasuryAlert(), fetchAiConfig(), fetchCompanyProfile()])
+      .then(([r, a, ai, prof]) => {
         setRules(r);
         setAlert(a);
         setAiStatus(ai);
+        setProfile(prof);
         if (ai.configured && ai.provider) {
           setAiForm((f) => ({ ...f, provider: ai.provider!, model: ai.model ?? f.model, baseUrl: ai.baseUrl ?? undefined }));
         }
       })
       .finally(() => setLoading(false));
+
+    // Statut chiffrement
+    api.get<{ enabled: boolean }>("/encryption/status").then(({ data }) => {
+      setEncEnabled(data.enabled);
+    }).catch(() => {});
   }, []);
 
   async function handleSaveRules(updated: CategoryRule[]) {
@@ -87,6 +105,16 @@ export function SettingsView() {
     flashSaved();
   }
 
+  async function handleSaveProfile() {
+    await saveCompanyProfile(profile);
+    flashSaved();
+  }
+
+  function profileField(key: keyof CompanyProfile) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setProfile((p) => ({ ...p, [key]: e.target.value }));
+  }
+
   function flashSaved() {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -110,6 +138,58 @@ export function SettingsView() {
           </span>
         )}
       </div>
+
+      {/* ── Profil entreprise ────────────────────────────────────────────── */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-vscode-muted uppercase tracking-wider">
+          Profil de l'entreprise
+        </h2>
+        <p className="text-xs text-vscode-muted">
+          Ces informations apparaissent sur vos factures PDF et rapports.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { key: "name" as const, label: "Nom *", placeholder: "Ma Société SAS" },
+            { key: "legalForm" as const, label: "Forme juridique", placeholder: "SAS, SARL…" },
+            { key: "siren" as const, label: "SIREN", placeholder: "123 456 789" },
+            { key: "vatNumber" as const, label: "N° TVA", placeholder: "FR 12 123456789" },
+            { key: "capital" as const, label: "Capital", placeholder: "10 000 €" },
+            { key: "rcs" as const, label: "RCS", placeholder: "Paris B 123 456 789" },
+            { key: "email" as const, label: "Email", placeholder: "contact@societe.fr" },
+            { key: "phone" as const, label: "Téléphone", placeholder: "+33 1 23 45 67 89" },
+            { key: "website" as const, label: "Site web", placeholder: "https://masociete.fr" },
+            { key: "iban" as const, label: "IBAN", placeholder: "FR76 …" },
+            { key: "bankName" as const, label: "Banque", placeholder: "BNP Paribas" },
+          ].map(({ key, label, placeholder }) => (
+            <div key={key} className="space-y-1">
+              <label className="text-xs text-vscode-muted">{label}</label>
+              <input
+                type="text"
+                value={(profile[key] as string) ?? ""}
+                onChange={profileField(key)}
+                placeholder={placeholder}
+                className="w-full bg-vscode-bg border border-vscode-border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-vscode-accent"
+              />
+            </div>
+          ))}
+          <div className="col-span-2 space-y-1">
+            <label className="text-xs text-vscode-muted">Adresse</label>
+            <input
+              type="text"
+              value={profile.address ?? ""}
+              onChange={profileField("address")}
+              placeholder="12 rue de la Paix, 75001 Paris"
+              className="w-full bg-vscode-bg border border-vscode-border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-vscode-accent"
+            />
+          </div>
+        </div>
+        <button
+          onClick={handleSaveProfile}
+          className="bg-vscode-accent hover:bg-blue-600 text-white text-xs px-4 py-1.5 rounded transition-colors"
+        >
+          Sauvegarder le profil
+        </button>
+      </section>
 
       {/* ── Règles de catégorie ───────────────────────────────────────────── */}
       <section className="space-y-3">
@@ -355,6 +435,20 @@ export function SettingsView() {
         </div>
       </section>
 
+      {/* ── Synchronisation Git ────────────────────────────────────────── */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-vscode-muted uppercase tracking-wider">
+            Sauvegarde &amp; Synchronisation
+          </h2>
+        </div>
+        <p className="text-xs text-vscode-muted">
+          Sauvegardez automatiquement vos données sur votre propre dépôt git privé.
+          Aucune donnée ne transite par les serveurs ComptaOS.
+        </p>
+        <GitSyncPanel />
+      </section>
+
       {/* OCR Mistral */}
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-vscode-text border-b border-vscode-border pb-2">
@@ -392,6 +486,98 @@ export function SettingsView() {
         >
           Enregistrer
         </button>
+      </section>
+
+      {/* ── Chiffrement du workspace ─────────────────────────────────────── */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold text-vscode-text border-b border-vscode-border pb-2 flex items-center gap-2">
+          🔒 Chiffrement du workspace
+        </h2>
+        <p className="text-xs text-vscode-muted">
+          Chiffrement AES-256-GCM avec dérivation de clé PBKDF2 (100 000 itérations).
+          La passphrase n'est jamais stockée — seul son hash SHA-256 est conservé pour vérification.
+        </p>
+
+        <div className={`flex items-center gap-2 px-3 py-2 rounded border ${encEnabled ? "border-green-700/60 bg-green-900/20" : "border-vscode-border bg-vscode-panel/30"}`}>
+          <span className={`text-xl ${encEnabled ? "text-green-400" : "text-vscode-muted"}`}>{encEnabled ? "🔒" : "🔓"}</span>
+          <div className="flex-1">
+            <p className="text-xs font-semibold text-vscode-text">{encEnabled ? "Chiffrement actif" : "Chiffrement inactif"}</p>
+            <p className="text-[11px] text-vscode-muted">{encEnabled ? "Les nouvelles données peuvent être chiffrées avec votre passphrase." : "Les données sont stockées en clair."}</p>
+          </div>
+        </div>
+
+        {encMsg && (
+          <div className={`text-xs px-3 py-2 rounded border ${encMsg.ok ? "border-green-700/50 bg-green-900/20 text-green-300" : "border-red-700/50 bg-red-900/20 text-red-300"}`}>
+            {encMsg.text}
+          </div>
+        )}
+
+        {!encEnabled ? (
+          <div className="space-y-2">
+            <label className="text-xs text-vscode-muted uppercase tracking-wide">Passphrase (min. 8 caractères)</label>
+            <input
+              type="password"
+              value={encPassphrase}
+              onChange={(e) => setEncPassphrase(e.target.value)}
+              placeholder="Passphrase secrète…"
+              className="w-full bg-vscode-bg border border-vscode-border text-vscode-text text-xs rounded px-3 py-2 focus:outline-none focus:border-vscode-accent"
+            />
+            <label className="text-xs text-vscode-muted uppercase tracking-wide">Confirmer la passphrase</label>
+            <input
+              type="password"
+              value={encConfirm}
+              onChange={(e) => setEncConfirm(e.target.value)}
+              placeholder="Confirmer…"
+              className="w-full bg-vscode-bg border border-vscode-border text-vscode-text text-xs rounded px-3 py-2 focus:outline-none focus:border-vscode-accent"
+            />
+            <button
+              disabled={encLoading || encPassphrase.length < 8 || encPassphrase !== encConfirm}
+              onClick={async () => {
+                setEncLoading(true); setEncMsg(null);
+                try {
+                  await api.post("/encryption/enable", { passphrase: encPassphrase });
+                  setEncEnabled(true);
+                  setEncPassphrase(""); setEncConfirm("");
+                  setEncMsg({ ok: true, text: "Chiffrement activé avec succès." });
+                } catch (e: unknown) {
+                  const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "Erreur";
+                  setEncMsg({ ok: false, text: msg });
+                } finally { setEncLoading(false); }
+              }}
+              className="bg-vscode-accent hover:bg-blue-600 disabled:opacity-40 text-white text-xs px-4 py-1.5 rounded transition-colors"
+            >
+              {encLoading ? "Activation…" : "Activer le chiffrement"}
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <label className="text-xs text-vscode-muted uppercase tracking-wide">Passphrase actuelle (pour désactiver)</label>
+            <input
+              type="password"
+              value={encPassphrase}
+              onChange={(e) => setEncPassphrase(e.target.value)}
+              placeholder="Passphrase…"
+              className="w-full bg-vscode-bg border border-vscode-border text-vscode-text text-xs rounded px-3 py-2 focus:outline-none focus:border-vscode-accent"
+            />
+            <button
+              disabled={encLoading || !encPassphrase}
+              onClick={async () => {
+                setEncLoading(true); setEncMsg(null);
+                try {
+                  await api.post("/encryption/disable", { passphrase: encPassphrase });
+                  setEncEnabled(false);
+                  setEncPassphrase("");
+                  setEncMsg({ ok: true, text: "Chiffrement désactivé." });
+                } catch {
+                  setEncMsg({ ok: false, text: "Passphrase incorrecte." });
+                } finally { setEncLoading(false); }
+              }}
+              className="bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white text-xs px-4 py-1.5 rounded transition-colors"
+            >
+              {encLoading ? "Désactivation…" : "Désactiver le chiffrement"}
+            </button>
+          </div>
+        )}
       </section>
     </div>
   );

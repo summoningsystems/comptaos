@@ -73,6 +73,14 @@ function Ca3Panel({ quarters, total, year }: { quarters: QuarterData[]; total: V
           >
             📋 Copier
           </button>
+          <a
+            href={`/api/reports/vat-pdf?year=${year}&quarter=${selectedQ}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-vscode-muted hover:text-vscode-text border border-vscode-border rounded px-2 py-1 flex items-center gap-1"
+          >
+            📄 PDF
+          </a>
         </div>
       </div>
 

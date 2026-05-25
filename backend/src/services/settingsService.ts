@@ -134,3 +134,38 @@ export function saveBudgets(budgets: CategoryBudget[]): void {
   ensureDir();
   writeFileSync(join(getSettingsDir(), "budgets.json"), JSON.stringify(budgets, null, 2), "utf-8");
 }
+
+// ── Profil entreprise ─────────────────────────────────────────────────────────
+
+export interface CompanyProfile {
+  name: string;
+  legalForm?: string;       // SAS, SARL, Auto-entrepreneur…
+  siren?: string;
+  vatNumber?: string;       // numéro TVA intracommunautaire
+  capital?: string;
+  rcs?: string;
+  address?: string;
+  postalCode?: string;
+  city?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  iban?: string;
+  bankName?: string;
+  onboardingDone?: boolean;
+}
+
+export function loadCompanyProfile(): CompanyProfile {
+  const file = join(getSettingsDir(), "company_profile.json");
+  if (!existsSync(file)) return { name: "" };
+  try {
+    return JSON.parse(readFileSync(file, "utf-8")) as CompanyProfile;
+  } catch {
+    return { name: "" };
+  }
+}
+
+export function saveCompanyProfile(profile: CompanyProfile): void {
+  ensureDir();
+  writeFileSync(join(getSettingsDir(), "company_profile.json"), JSON.stringify(profile, null, 2), "utf-8");
+}

@@ -1,5 +1,4 @@
 ﻿import { useEffect, useRef, useState, useCallback } from "react";
-import { HyperFormula } from "hyperformula";
 import * as XLSX from "xlsx";
 import type { SpreadsheetDoc, SpreadsheetSheet, SpreadsheetCell, CellFormat } from "./spreadsheetTypes";
 import {
@@ -104,34 +103,9 @@ function formatNumber(val: number, fmt?: CellFormat["numberFormat"]): string {
   return Number.isInteger(val) ? String(val) : val.toFixed(2);
 }
 
-function buildHF(sheet: SpreadsheetSheet, vars: Record<string, number>) {
-  // Construire la matrice uniquement sur la plage réellement utilisée (perf)
-  let maxRow = 0, maxCol = 0;
-  const entries = Object.entries(sheet.cells);
-  for (const [key, cell] of entries) {
-    if (cell.value === null || cell.value === undefined || cell.value === "") continue;
-    const pos = parseCell(key);
-    if (pos) {
-      if (pos.row > maxRow) maxRow = pos.row;
-      if (pos.col > maxCol) maxCol = pos.col;
-    }
-  }
-  const usedRows = maxRow + 1;
-  const usedCols = maxCol + 1;
-  const matrix: (string | number | null)[][] = Array.from(
-    { length: usedRows },
-    () => Array(usedCols).fill(null)
-  );
-  for (const [key, cell] of entries) {
-    const pos = parseCell(key);
-    if (pos && pos.row < usedRows && pos.col < usedCols)
-      matrix[pos.row][pos.col] = cell.value;
-  }
-  const hf = HyperFormula.buildFromArray(matrix, { licenseKey: "gpl-v3" });
-  for (const [name, value] of Object.entries(vars)) {
-    try { hf.addNamedExpression(name.toUpperCase(), value.toString()); } catch { /* ignore */ }
-  }
-  return hf;
+function buildHF(_sheet: SpreadsheetSheet, _vars: Record<string, number>) {
+  // Remplacé par Web Worker — ne pas utiliser directement
+  throw new Error("Utiliser le Web Worker via recompute()");
 }
 
 /** Ajuste les références de cellules dans une formule lors d'une copie/déplacement */
@@ -266,6 +240,13 @@ export function SpreadsheetView() {
   const applyFillRef = useRef<(s: string, e: string | null, t: string) => void>(() => {});
   const applyMoveRef = useRef<(keys: string[], offset: { r: number; c: number }, t: string) => void>(() => {});
   const recomputeVersionRef = useRef(0);
+  // Web Worker pour HyperFormula — thread séparé, UI non bloquée
+  const workerRef = useRef<Worker | null>(null);
+  useEffect(() => {
+    const w = new Worker(new URL("./spreadsheetWorker.ts", import.meta.url), { type: "module" });
+    workerRef.current = w;
+    return () => { w.terminate(); workerRef.current = null; };
+  }, []);
 
   const sheet = activeDoc?.sheets[activeSheetIdx] ?? null;
 
@@ -344,28 +325,32 @@ export function SpreadsheetView() {
   const recompute = useCallback((s: SpreadsheetSheet, vars: Record<string, number>) => {
     const version = ++recomputeVersionRef.current;
     setIsRecomputing(true);
-    setTimeout(() => {
-      if (version !== recomputeVersionRef.current) return; // calcul annulé (nouvelle requête)
-      const hf = buildHF(s, vars);
-      const computed: Record<string, string | number | null> = {};
-      for (const [key, cell] of Object.entries(s.cells)) {
-        if (!cell.value && cell.value !== 0) continue;
-        const pos = parseCell(key);
-        if (!pos) continue;
-        try {
-          const raw = hf.getCellValue({ sheet: 0, row: pos.row, col: pos.col });
-          computed[key] = raw instanceof Error
-            ? `#ERR:${raw.message.slice(0, 12)}`
-            : (raw as string | number | null);
-        } catch {
-          computed[key] = cell.value;
-        }
-      }
-      hf.destroy();
-      if (version !== recomputeVersionRef.current) return;
-      setComputedValues(computed);
+
+    const worker = workerRef.current;
+    if (!worker) {
       setIsRecomputing(false);
-    }, 0);
+      return;
+    }
+
+    // Envoyer les données au worker (thread séparé)
+    worker.postMessage({ type: "COMPUTE", sheetCells: s.cells, vars, version });
+
+    // Résultat unique pour cette version
+    const onMessage = (e: MessageEvent) => {
+      const { type, computed, version: v, message } = e.data;
+      if (v !== version) return; // réponse périmée — ignorer
+
+      worker.removeEventListener("message", onMessage);
+      setIsRecomputing(false);
+
+      if (type === "RESULT") {
+        setComputedValues(computed);
+      } else if (type === "ERROR") {
+        console.warn("[spreadsheetWorker] erreur de calcul:", message);
+      }
+    };
+
+    worker.addEventListener("message", onMessage);
   }, []);
 
   useEffect(() => {

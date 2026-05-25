@@ -14,6 +14,7 @@ import { ReportsView } from "./components/Reports/ReportsView";
 import { RecurringView } from "./components/Recurring/RecurringView";
 import { SettingsView } from "./components/Settings/SettingsView";
 import { InvoicesView } from "./components/Invoices/InvoicesView";
+import { QuotesView } from "./components/Quotes/QuotesView";
 import { TiersView } from "./components/Tiers/TiersView";
 import { VatView } from "./components/Vat/VatView";
 import { BudgetsView } from "./components/Budgets/BudgetsView";
@@ -26,7 +27,9 @@ import { ReconcileView } from "./components/Reconcile/ReconcileView";
 import { TreasuryView } from "./components/Treasury/TreasuryView";
 import { ExportView } from "./components/Export/ExportView";
 import { ProfitLossView } from "./components/ProfitLoss/ProfitLossView";
+import { PluginsView } from "./components/Plugins/PluginsView";
 import { CommandPalette } from "./components/Layout/CommandPalette";
+import { OnboardingWizard } from "./components/Onboarding/OnboardingWizard";
 import { useAppStore } from "./stores/appStore";
 import { CompanySelector } from "./components/Company/CompanySelector";
 import type { TabType } from "./types";
@@ -42,6 +45,7 @@ const TAB_LABELS: Record<TabType, string> = {
   reports:      "Rapports",
   recurring:    "Frais récurrents",
   invoices:     "Factures",
+  quotes:       "Devis",
   settings:     "Paramètres",
   tiers:        "Tiers",
   vat:          "TVA",
@@ -55,6 +59,7 @@ const TAB_LABELS: Record<TabType, string> = {
   treasury:     "Trésorerie",
   export:       "Export",
   profitloss:   "Bilan / P&L",
+  plugins:      "Plugins",
 };
 
 // ── ErrorBoundary — empêche les pages blanches sur crash d'un composant ──────
@@ -93,6 +98,7 @@ function ViewContent({ type, tabId, path }: { type: TabType; tabId?: string; pat
       {type === "reports"      && <ReportsView />}
       {type === "recurring"    && <RecurringView />}
       {type === "invoices"     && <InvoicesView />}
+      {type === "quotes"       && <QuotesView />}
       {type === "settings"     && <SettingsView />}
       {type === "tiers"        && <TiersView />}
       {type === "vat"          && <VatView />}
@@ -106,6 +112,7 @@ function ViewContent({ type, tabId, path }: { type: TabType; tabId?: string; pat
       {type === "treasury"     && <TreasuryView />}
       {type === "export"       && <ExportView />}
       {type === "profitloss"   && <ProfitLossView />}
+      {type === "plugins"       && <PluginsView />}
     </>
   );
 }
@@ -141,6 +148,8 @@ export default function App() {
   const [showAlertDrop, setShowAlertDrop] = useState(false);
   const [alertMessages, setAlertMessages] = useState<{ level: string; message: string }[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
+  const [showCompanyWizard, setShowCompanyWizard] = useState(false);
+  const [wizardCanCancel, setWizardCanCancel] = useState(false);
   const { tabs, activeTabId, openTab } = useAppStore();
 
   useEffect(() => {
@@ -150,6 +159,10 @@ export default function App() {
     axios.get<import("./types").Transaction[]>("/api/transactions")
       .then(({ data }) => setPendingCount(data.filter((t) => t.status === "pending").length))
       .catch(() => {});
+    // Ouvrir automatiquement le wizard si aucune entreprise (non annulable)
+    import("./api/client").then(({ fetchCompanies }) =>
+      fetchCompanies().then((list) => { if (list.length === 0) { setWizardCanCancel(false); setShowCompanyWizard(true); } })
+    );
   }, []);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -181,11 +194,17 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-vscode-bg text-vscode-text">
+      {showCompanyWizard && (
+        <OnboardingWizard
+          onDone={() => { setShowCompanyWizard(false); window.location.reload(); }}
+          onCancel={wizardCanCancel ? () => setShowCompanyWizard(false) : undefined}
+        />
+      )}
       {/* Title bar */}
       <div className="flex items-center justify-between px-4 h-12 bg-vscode-panel border-b border-vscode-border shrink-0 select-none">
         <div className="flex items-center gap-3">
           <span className="text-xs text-vscode-muted font-semibold tracking-wide">ComptaOS</span>
-          <CompanySelector />
+          <CompanySelector onCreateNew={() => { setWizardCanCancel(true); setShowCompanyWizard(true); }} />
         </div>
         <div className="flex gap-4">
           <button
@@ -254,6 +273,12 @@ export default function App() {
             🧾 Factures
           </button>
           <button
+            onClick={() => openTab({ id: "quotes", title: "Devis", type: "quotes" })}
+            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
+          >
+            📋 Devis
+          </button>
+          <button
             onClick={() => openTab({ id: "spreadsheets", title: "Tableaux", type: "spreadsheets" })}
             className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
           >
@@ -300,6 +325,12 @@ export default function App() {
             className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
           >
             ⚙️ Paramètres
+          </button>
+          <button
+            onClick={() => openTab({ id: "plugins", title: "Plugins", type: "plugins" })}
+            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
+          >
+            🧩 Plugins
           </button>
           <button
             onClick={() => setSearchOpen(true)}

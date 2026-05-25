@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { OutgoingInvoice, Category } from "../../types";
-import { fetchInvoices, createInvoice, updateInvoice, deleteInvoice } from "../../api/client";
+import { fetchInvoices, createInvoice, updateInvoice, deleteInvoice, downloadInvoicePdf } from "../../api/client";
+
+const TODAY = new Date().toISOString().slice(0, 10);
 
 const STATUS_LABELS: Record<OutgoingInvoice["status"], string> = {
   draft: "Brouillon",
@@ -34,12 +36,27 @@ export function InvoicesView() {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [form, setForm] = useState<Omit<OutgoingInvoice, "id">>(EMPTY_FORM);
+  const [reminderInv, setReminderInv] = useState<OutgoingInvoice | null>(null);
 
   useEffect(() => {
-    fetchInvoices()
-      .then(setInvoices)
-      .finally(() => setLoading(false));
+    fetchInvoices().then((list) => {
+      // Auto-marquer comme "overdue" les factures envoyées dont l'échéance est passée
+      const updated = list.map((inv) =>
+        inv.status === "sent" && inv.dueDate && inv.dueDate < TODAY
+          ? { ...inv, status: "overdue" as const }
+          : inv
+      );
+      setInvoices(updated);
+    }).finally(() => setLoading(false));
   }, []);
+
+  async function quickStatus(inv: OutgoingInvoice, status: OutgoingInvoice["status"]) {
+    const patch = status === "paid"
+      ? { ...inv, status, paidDate: TODAY }
+      : { ...inv, status };
+    const updated = await updateInvoice(inv.id, patch);
+    setInvoices((prev) => prev.map((i) => (i.id === inv.id ? updated : i)));
+  }
 
   function openNew() {
     setForm({ ...EMPTY_FORM, number: `FA-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, "0")}` });
@@ -168,19 +185,39 @@ export function InvoicesView() {
                       {STATUS_LABELS[inv.status]}
                     </span>
                   </td>
-                  <td className="py-2 flex gap-2">
-                    <button
-                      onClick={() => openEdit(inv)}
-                      className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-                    >
-                      Éditer
-                    </button>
-                    <button
-                      onClick={() => handleDelete(inv.id)}
-                      className="text-xs text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      ✕
-                    </button>
+                  <td className="py-2">
+                    <div className="flex gap-1.5 items-center">
+                      {inv.status === "draft" && (
+                        <button onClick={() => quickStatus(inv, "sent")}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-900/40 text-yellow-300 hover:bg-yellow-800/60 transition-colors" title="Marquer comme envoyée">
+                          Envoyée
+                        </button>
+                      )}
+                      {(inv.status === "sent" || inv.status === "overdue") && (
+                        <>
+                          <button onClick={() => quickStatus(inv, "paid")}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-green-900/40 text-green-300 hover:bg-green-800/60 transition-colors" title="Marquer comme payée">
+                            Payée
+                          </button>
+                          <button onClick={() => setReminderInv(inv)}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-vscode-border/60 text-vscode-muted hover:text-vscode-text transition-colors" title="Générer relance">
+                            Relance
+                          </button>
+                        </>
+                      )}
+                      <button onClick={() => openEdit(inv)}
+                        className="text-xs text-vscode-muted hover:text-vscode-text transition-colors">
+                        Éditer
+                      </button>
+                      <button onClick={() => downloadInvoicePdf(inv.id, inv.number)} title="Télécharger le PDF"
+                        className="text-xs text-vscode-accent hover:text-blue-300 transition-colors">
+                        PDF
+                      </button>
+                      <button onClick={() => handleDelete(inv.id)}
+                        className="text-xs text-red-400 hover:text-red-300 transition-colors">
+                        ✕
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -310,6 +347,38 @@ export function InvoicesView() {
                 className="bg-vscode-accent hover:bg-blue-600 text-white text-sm px-4 py-1.5 rounded transition-colors"
               >
                 Sauvegarder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal relance */}
+      {reminderInv && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-vscode-sidebar border border-vscode-border rounded-lg p-6 w-full max-w-lg space-y-4 shadow-2xl">
+            <h2 className="text-sm font-semibold">Email de relance — {reminderInv.number}</h2>
+            <textarea
+              readOnly
+              rows={12}
+              className="w-full bg-vscode-bg border border-vscode-border rounded px-3 py-2 text-xs font-mono focus:outline-none resize-none"
+              value={`Objet : Relance facture ${reminderInv.number} — échéance dépassée\n\nBonjour,\n\nSauf erreur de notre part, nous n'avons pas reçu le règlement de la facture ci-dessous :\n\n  Facture n° : ${reminderInv.number}\n  Date       : ${reminderInv.date}\n  Échéance   : ${reminderInv.dueDate}\n  Montant TTC: ${reminderInv.amount_ttc.toFixed(2)} €\n\nNous vous remercions de bien vouloir procéder au règlement de cette somme dans les meilleurs délais.\n\nEn cas de règlement récent, veuillez ne pas tenir compte de ce message.\n\nCordialement,`}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    `Objet : Relance facture ${reminderInv.number}\n\nBonjour,\n\nSauf erreur de notre part, nous n'avons pas reçu le règlement de la facture n° ${reminderInv.number} du ${reminderInv.date} d'un montant de ${reminderInv.amount_ttc.toFixed(2)} € (échéance : ${reminderInv.dueDate}).\n\nMerci de procéder au règlement dans les meilleurs délais.\n\nCordialement,`
+                  );
+                }}
+                className="text-sm text-vscode-muted hover:text-vscode-text px-3 py-1.5 rounded border border-vscode-border transition-colors"
+              >
+                Copier
+              </button>
+              <button
+                onClick={() => setReminderInv(null)}
+                className="bg-vscode-accent hover:bg-blue-600 text-white text-sm px-4 py-1.5 rounded transition-colors"
+              >
+                Fermer
               </button>
             </div>
           </div>

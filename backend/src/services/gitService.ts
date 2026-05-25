@@ -135,3 +135,152 @@ export async function hasRepo(workspacePath: string): Promise<boolean> {
     return false;
   }
 }
+
+// ── Synchronisation distante ──────────────────────────────────────────────────
+
+export type GitProvider = "github" | "gitlab" | "gitea" | "custom";
+
+export interface GitSyncConfig {
+  provider: GitProvider;
+  remoteUrl: string;   // URL sans token (ex: https://github.com/user/repo.git)
+  token: string;       // Token d'accès personnel (stocké localement, non commité)
+  branch: string;      // Branche cible (ex: main)
+}
+
+export interface GitSyncStatus {
+  configured: boolean;
+  provider?: GitProvider;
+  remoteUrl?: string;
+  branch?: string;
+  hasToken: boolean;
+  ahead: number;
+  behind: number;
+  lastSync?: string;
+}
+
+/** Chemin du fichier de config sync (dans le dossier .git — jamais commité). */
+function syncConfigPath(workspacePath: string): string {
+  return path.join(workspacePath, ".git", "comptaos_sync.json");
+}
+
+/** Lit la config de synchronisation distante. */
+export async function readSyncConfig(workspacePath: string): Promise<GitSyncConfig | null> {
+  try {
+    const raw = await fs.readFile(syncConfigPath(workspacePath), "utf-8");
+    return JSON.parse(raw) as GitSyncConfig;
+  } catch {
+    return null;
+  }
+}
+
+/** Écrit la config de synchronisation distante. */
+export async function writeSyncConfig(workspacePath: string, config: GitSyncConfig): Promise<void> {
+  await fs.writeFile(syncConfigPath(workspacePath), JSON.stringify(config, null, 2), "utf-8");
+}
+
+/** Supprime la config de synchronisation (déconnexion). */
+export async function deleteSyncConfig(workspacePath: string): Promise<void> {
+  try {
+    await fs.unlink(syncConfigPath(workspacePath));
+  } catch { /* déjà absent */ }
+  try {
+    await git(["remote", "remove", "origin"], workspacePath);
+  } catch { /* pas de remote */ }
+}
+
+/** Construit l'URL authentifiée pour git (token intégré, jamais stocké dans .git/config). */
+function buildAuthUrl(remoteUrl: string, token: string): string {
+  const url = new URL(remoteUrl);
+  url.username = token;
+  url.password = "x-oauth-basic";
+  return url.toString();
+}
+
+/** Configure le remote dans git (sans token dans l'URL stockée). */
+async function ensureRemote(workspacePath: string, remoteUrl: string): Promise<void> {
+  try {
+    await git(["remote", "set-url", "origin", remoteUrl], workspacePath);
+  } catch {
+    try {
+      await git(["remote", "add", "origin", remoteUrl], workspacePath);
+    } catch { /* déjà configuré */ }
+  }
+}
+
+/** Teste la connexion sans modifier l'état local. */
+export async function testRemoteConnection(workspacePath: string, config: GitSyncConfig): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const authUrl = buildAuthUrl(config.remoteUrl, config.token);
+    await git(["ls-remote", "--heads", authUrl], workspacePath);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message?.slice(0, 200) };
+  }
+}
+
+/** Retourne le statut de synchronisation (ahead/behind). */
+export async function getSyncStatus(workspacePath: string): Promise<GitSyncStatus> {
+  const config = await readSyncConfig(workspacePath);
+
+  if (!config) {
+    return { configured: false, hasToken: false, ahead: 0, behind: 0 };
+  }
+
+  let ahead = 0;
+  let behind = 0;
+
+  try {
+    await ensureRemote(workspacePath, config.remoteUrl);
+    const authUrl = buildAuthUrl(config.remoteUrl, config.token);
+    await git(["fetch", authUrl, "--quiet"], workspacePath);
+
+    const rev = await git(
+      ["rev-list", "--left-right", "--count", `origin/${config.branch}...HEAD`],
+      workspacePath
+    ).catch(() => "0\t0");
+
+    const parts = rev.split("\t");
+    behind = parseInt(parts[0] ?? "0", 10);
+    ahead  = parseInt(parts[1] ?? "0", 10);
+  } catch { /* remote inaccessible — on ignore */ }
+
+  return {
+    configured: true,
+    provider: config.provider,
+    remoteUrl: config.remoteUrl,
+    branch: config.branch,
+    hasToken: !!config.token,
+    ahead,
+    behind,
+  };
+}
+
+/** Pousse les commits locaux vers le remote. */
+export async function syncPush(workspacePath: string): Promise<{ ok: boolean; message: string }> {
+  const config = await readSyncConfig(workspacePath);
+  if (!config) return { ok: false, message: "Synchronisation non configurée" };
+
+  try {
+    await ensureRemote(workspacePath, config.remoteUrl);
+    const authUrl = buildAuthUrl(config.remoteUrl, config.token);
+    const result = await git(["push", authUrl, `HEAD:${config.branch}`], workspacePath);
+    return { ok: true, message: result || "Push effectué" };
+  } catch (err) {
+    return { ok: false, message: (err as Error).message?.slice(0, 300) ?? "Erreur inconnue" };
+  }
+}
+
+/** Récupère et intègre les commits distants (rebase). */
+export async function syncPull(workspacePath: string): Promise<{ ok: boolean; message: string }> {
+  const config = await readSyncConfig(workspacePath);
+  if (!config) return { ok: false, message: "Synchronisation non configurée" };
+
+  try {
+    await ensureRemote(workspacePath, config.remoteUrl);
+    const authUrl = buildAuthUrl(config.remoteUrl, config.token);
+    const result = await git(["pull", "--rebase", authUrl, config.branch], workspacePath);
+    return { ok: true, message: result || "Pull effectué" };
+  } catch (err) {
+    return { ok: false, message: (err as Error).message?.slice(0, 300) ?? "Erreur inconnue" };
+  }
+}

@@ -2,13 +2,22 @@
   "name": "compta-os",
   "version": "1.0.0",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently --names \"backend,frontend\" --prefix-colors \"cyan,magenta\" \"npm run dev --prefix backend\" \"wait-on http://127.0.0.1:3001/api/health --timeout 30000 && npm run dev --prefix frontend\"",
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
-    "build": "npm run build --prefix backend && npm run build --prefix frontend"
+    "build": "npm run build --prefix backend && npm run build --prefix frontend",
+    "electron": "electron .",
+    "electron:dev": "concurrently --names \"backend,frontend,electron\" --prefix-colors \"cyan,magenta,yellow\" \"npm run dev --prefix backend\" \"wait-on http://127.0.0.1:3001/api/health --timeout 30000 && npm run dev --prefix frontend\" \"wait-on http://127.0.0.1:3001/api/health --timeout 30000 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "concurrently": "^8.2.2",
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
     "wait-on": "^9.0.10"
   }
 }

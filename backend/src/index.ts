@@ -1,4 +1,6 @@
 import "dotenv/config";
+import path from "path";
+import { fileURLToPath } from "url";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { filesRoutes } from "./routes/files.js";
@@ -12,6 +14,7 @@ import { reportsRoutes } from "./routes/reports.js";
 import { recurringRoutes } from "./routes/recurring.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { invoicesRoutes } from "./routes/invoices.js";
+import { quotesRoutes } from "./routes/quotes.js";
 import { companiesRoutes } from "./routes/companies.js";
 import { attachmentsRoutes } from "./routes/attachments.js";
 import { spreadsheetsRoutes } from "./routes/spreadsheets.js";
@@ -22,6 +25,9 @@ import { reconcileRoutes } from "./routes/reconcile.js";
 import { templatesRoutes } from "./routes/templates.js";
 import { exportRoutes } from "./routes/export.js";
 import { profitLossRoutes } from "./routes/profitLoss.js";
+import { pluginsRoutes } from "./routes/plugins.js";
+import { encryptionRoutes } from "./routes/encryption.js";
+import staticPlugin from "@fastify/static";
 import { ensureDefaultCompany } from "./services/companiesService.js";
 import { initRepo } from "./services/gitService.js";
 import { getWorkspaceRoot } from "./services/fileSystem.js";
@@ -71,6 +77,7 @@ await app.register(reportsRoutes, { prefix: "/api/reports" });
 await app.register(recurringRoutes, { prefix: "/api/recurring" });
 await app.register(settingsRoutes, { prefix: "/api/settings" });
 await app.register(invoicesRoutes, { prefix: "/api/invoices" });
+await app.register(quotesRoutes, { prefix: "/api/quotes" });
 await app.register(companiesRoutes, { prefix: "/api/companies" });
 await app.register(attachmentsRoutes, { prefix: "/api/attachments" });
 await app.register(spreadsheetsRoutes, { prefix: "/api/spreadsheets" });
@@ -81,6 +88,8 @@ await app.register(reconcileRoutes, { prefix: "/api/reconcile" });
 await app.register(templatesRoutes, { prefix: "/api/templates" });
 await app.register(exportRoutes, { prefix: "/api/export" });
 await app.register(profitLossRoutes, { prefix: "/api/pl" });
+await app.register(pluginsRoutes,    { prefix: "/api/plugins" });
+await app.register(encryptionRoutes, { prefix: "/api/encryption" });
 
 // Initialisation : créer l'entreprise par défaut si nécessaire
 ensureDefaultCompany();
@@ -94,6 +103,17 @@ try {
 
 // Health check
 app.get("/api/health", async () => ({ status: "ok" }));
+
+// Serve frontend build en production (Electron ou déploiement)
+if (process.env.NODE_ENV === "production") {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const frontendDist = path.join(__dirname, "..", "..", "frontend", "dist");
+  await app.register(staticPlugin, { root: frontendDist, prefix: "/" });
+  // SPA fallback — toute route non-API renvoie index.html
+  app.setNotFoundHandler((_req, reply) => {
+    reply.sendFile("index.html");
+  });
+}
 
 const PORT = parseInt(process.env.PORT ?? "3001");
 

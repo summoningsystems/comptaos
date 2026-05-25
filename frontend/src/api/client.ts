@@ -7,11 +7,13 @@ import {
   ManualRecurring,
   CategoryRule,
   OutgoingInvoice,
+  Quote,
   TreasuryAlert,
   AiConfig,
   AiConfigStatus,
   CategoryBudget,
   Company,
+  CompanyProfile,
 } from "../types";
 
 export const api = axios.create({ baseURL: "/api" });
@@ -198,6 +200,32 @@ export async function deleteInvoice(id: string): Promise<void> {
   await api.delete(`/invoices/${id}`);
 }
 
+// ── Devis ─────────────────────────────────────────────────────────────────────
+
+export async function fetchQuotes(): Promise<Quote[]> {
+  const { data } = await api.get<Quote[]>("/quotes/");
+  return data;
+}
+
+export async function createQuote(q: Quote): Promise<Quote> {
+  const { data } = await api.post<Quote>("/quotes/", q);
+  return data;
+}
+
+export async function updateQuote(id: string, q: Quote): Promise<Quote> {
+  const { data } = await api.put<Quote>(`/quotes/${id}`, q);
+  return data;
+}
+
+export async function deleteQuote(id: string): Promise<void> {
+  await api.delete(`/quotes/${id}`);
+}
+
+export async function convertQuoteToInvoice(id: string): Promise<OutgoingInvoice> {
+  const { data } = await api.post<OutgoingInvoice>(`/quotes/${id}/convert`);
+  return data;
+}
+
 // ── Configuration IA ─────────────────────────────────────────────────────
 
 export async function fetchAiConfig(): Promise<AiConfigStatus> {
@@ -256,6 +284,78 @@ export interface SmartSuggestion {
 export async function fetchSmartSuggestions(): Promise<{ suggestions: SmartSuggestion[]; learnedPatterns: number }> {
   const { data } = await api.get<{ suggestions: SmartSuggestion[]; learnedPatterns: number }>("/transactions/smart-categorize");
   return data;
+}
+
+// ── Synchronisation git distante ──────────────────────────────────────────────
+
+export type GitProvider = "github" | "gitlab" | "gitea" | "custom";
+
+export interface GitSyncStatus {
+  configured: boolean;
+  provider?: GitProvider;
+  remoteUrl?: string;
+  branch?: string;
+  hasToken: boolean;
+  ahead: number;
+  behind: number;
+}
+
+export interface GitSyncConfig {
+  provider: GitProvider;
+  remoteUrl: string;
+  token: string;
+  branch: string;
+}
+
+export async function fetchGitSyncStatus(): Promise<GitSyncStatus> {
+  const { data } = await api.get<GitSyncStatus>("/git/sync");
+  return data;
+}
+
+export async function configureGitSync(config: GitSyncConfig): Promise<void> {
+  await api.post("/git/sync/configure", config);
+}
+
+export async function testGitSync(config: Omit<GitSyncConfig, "provider"> & { provider?: GitProvider }): Promise<{ ok: boolean; error?: string }> {
+  const { data } = await api.post<{ ok: boolean; error?: string }>("/git/sync/test", config);
+  return data;
+}
+
+export async function gitSyncPush(): Promise<{ ok: boolean; message: string }> {
+  const { data } = await api.post<{ ok: boolean; message: string }>("/git/sync/push");
+  return data;
+}
+
+export async function gitSyncPull(): Promise<{ ok: boolean; message: string }> {
+  const { data } = await api.post<{ ok: boolean; message: string }>("/git/sync/pull");
+  return data;
+}
+
+export async function deleteGitSync(): Promise<void> {
+  await api.delete("/git/sync");
+}
+
+// ── Profil entreprise ─────────────────────────────────────────────────────────
+
+export async function fetchCompanyProfile(): Promise<CompanyProfile> {
+  const { data } = await api.get<CompanyProfile>("/settings/profile");
+  return data;
+}
+
+export async function saveCompanyProfile(profile: CompanyProfile): Promise<void> {
+  await api.put("/settings/profile", profile);
+}
+
+// ── Téléchargement PDF facture ────────────────────────────────────────────────
+
+export async function downloadInvoicePdf(id: string, number: string): Promise<void> {
+  const { data } = await api.get(`/invoices/${id}/pdf`, { responseType: "blob" });
+  const url = URL.createObjectURL(new Blob([data], { type: "application/pdf" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `facture-${number.replace(/[^a-zA-Z0-9-]/g, "_")}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function applySmartCategories(changes: { id: string; category: string }[]): Promise<{ updated: number }> {

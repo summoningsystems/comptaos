@@ -1,0 +1,42 @@
+{
+  "appId": "fr.comptaos.app",
+  "productName": "ComptaOS",
+  "directories": {
+    "output": "dist-electron"
+  },
+  "files": [
+    "electron/**",
+    "backend/dist/**",
+    "frontend/dist/**",
+    "node_modules/**"
+  ],
+  "extraResources": [
+    {
+      "from": "backend/dist",
+      "to": "backend/dist"
+    },
+    {
+      "from": "frontend/dist",
+      "to": "frontend/dist"
+    }
+  ],
+  "win": {
+    "target": ["nsis"],
+    "icon": "electron/icons/icon.ico"
+  },
+  "mac": {
+    "target": ["dmg"],
+    "icon": "electron/icons/icon.icns",
+    "category": "public.app-category.finance"
+  },
+  "linux": {
+    "target": ["AppImage"],
+    "icon": "electron/icons/icon.png",
+    "category": "Office"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerLanguages": ["fr_FR", "en_US"]
+  }
+}
