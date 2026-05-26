@@ -87,7 +87,7 @@ export interface Invoice {
   transaction_id?: string;
 }
 
-export type TabType = "editor" | "dashboard" | "import" | "transactions" | "ocr" | "reports" | "recurring" | "invoices" | "quotes" | "settings" | "tiers" | "vat" | "budgets" | "spreadsheets" | "history" | "journal" | "alerts" | "templates" | "reconcile" | "treasury" | "export" | "profitloss" | "plugins";
+export type TabType = "editor" | "dashboard" | "import" | "transactions" | "ocr" | "reports" | "recurring" | "invoices" | "quotes" | "settings" | "tiers" | "vat" | "budgets" | "spreadsheets" | "history" | "journal" | "alerts" | "templates" | "reconcile" | "treasury" | "export" | "profitloss" | "plugins" | "pricing";
 
 export interface Quote {
   id: string;

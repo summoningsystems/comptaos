@@ -28,6 +28,7 @@ import { TreasuryView } from "./components/Treasury/TreasuryView";
 import { ExportView } from "./components/Export/ExportView";
 import { ProfitLossView } from "./components/ProfitLoss/ProfitLossView";
 import { PluginsView } from "./components/Plugins/PluginsView";
+import { PricingView } from "./components/Pricing/PricingView";
 import { CommandPalette } from "./components/Layout/CommandPalette";
 import { OnboardingWizard } from "./components/Onboarding/OnboardingWizard";
 import { useAppStore } from "./stores/appStore";
@@ -60,6 +61,7 @@ const TAB_LABELS: Record<TabType, string> = {
   export:       "Export",
   profitloss:   "Bilan / P&L",
   plugins:      "Plugins",
+  pricing:      "Plans & Licence",
 };
 
 // ── ErrorBoundary — empêche les pages blanches sur crash d'un composant ──────
@@ -113,6 +115,7 @@ function ViewContent({ type, tabId, path }: { type: TabType; tabId?: string; pat
       {type === "export"       && <ExportView />}
       {type === "profitloss"   && <ProfitLossView />}
       {type === "plugins"       && <PluginsView />}
+      {type === "pricing"       && <PricingView />}
     </>
   );
 }
@@ -331,6 +334,12 @@ export default function App() {
             className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
           >
             🧩 Plugins
+          </button>
+          <button
+            onClick={() => openTab({ id: "pricing", title: "Plans & Licence", type: "pricing" })}
+            className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors font-semibold border border-yellow-700/50 rounded px-2 py-0.5"
+          >
+            ⭐ Plans
           </button>
           <button
             onClick={() => setSearchOpen(true)}
