@@ -13,6 +13,7 @@ const TAB_ICONS: Record<string, string> = {
   quotes:       "📋",
   plugins:      "🧩",
   pricing:      "⭐",
+  banking:      "🏦",
   settings:     "⚙️",
   tiers:        "🏢",
   vat:          "💰",

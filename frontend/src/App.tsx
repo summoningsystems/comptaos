@@ -29,6 +29,7 @@ import { ExportView } from "./components/Export/ExportView";
 import { ProfitLossView } from "./components/ProfitLoss/ProfitLossView";
 import { PluginsView } from "./components/Plugins/PluginsView";
 import { PricingView } from "./components/Pricing/PricingView";
+import { BankingView } from "./components/Banking/BankingView";
 import { CommandPalette } from "./components/Layout/CommandPalette";
 import { OnboardingWizard } from "./components/Onboarding/OnboardingWizard";
 import { useAppStore } from "./stores/appStore";
@@ -62,6 +63,7 @@ const TAB_LABELS: Record<TabType, string> = {
   profitloss:   "Bilan / P&L",
   plugins:      "Plugins",
   pricing:      "Plans & Licence",
+  banking:      "Connexion bancaire",
 };
 
 // ── ErrorBoundary — empêche les pages blanches sur crash d'un composant ──────
@@ -116,6 +118,7 @@ function ViewContent({ type, tabId, path }: { type: TabType; tabId?: string; pat
       {type === "profitloss"   && <ProfitLossView />}
       {type === "plugins"       && <PluginsView />}
       {type === "pricing"       && <PricingView />}
+      {type === "banking"       && <BankingView />}
     </>
   );
 }
@@ -298,6 +301,12 @@ export default function App() {
             className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
           >
             🔗 Rapprochement
+          </button>
+          <button
+            onClick={() => openTab({ id: "banking", title: "Connexion bancaire", type: "banking" })}
+            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
+          >
+            🏦 Banque PSD2
           </button>
           <button
             onClick={() => openTab({ id: "templates", title: "Modèles", type: "templates" })}

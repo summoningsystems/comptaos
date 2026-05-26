@@ -11,7 +11,9 @@ interface Plan {
   highlighted: boolean;
   cta: string;
   ctaUrl: string;
+  note: string;
   features: string[];
+  locked: string[];
 }
 
 interface License {
@@ -38,12 +40,21 @@ export function PricingView() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [license, setLicense] = useState<License | null>(null);
   const [loading, setLoading] = useState(true);
+  const [stripeConfigured, setStripeConfigured] = useState(false);
 
-  // Activation licence
+  // Activation licence manuelle
   const [activateKey, setActivateKey] = useState("");
   const [activateEmail, setActivateEmail] = useState("");
   const [activateMsg, setActivateMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [activating, setActivating] = useState(false);
+
+  // Checkout Stripe
+  const [checkoutEmail, setCheckoutEmail] = useState("");
+  const [checkoutLoading, setCheckoutLoading] = useState<"pro" | "pro_plus" | null>(null);
+
+  // Vérification après retour Stripe
+  const [verifying, setVerifying] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Waitlist
   const [waitEmail, setWaitEmail] = useState("");
@@ -57,12 +68,52 @@ export function PricingView() {
       axios.get<Plan[]>("/api/license/plans"),
       axios.get<License>("/api/license"),
       axios.get<{ count: number }>("/api/waitlist/count"),
-    ]).then(([p, l, w]) => {
+      axios.get<{ configured: boolean }>("/api/stripe/status").catch(() => ({ data: { configured: false } })),
+    ]).then(([p, l, w, s]) => {
       setPlans(p.data);
       setLicense(l.data);
       setWaitCount(w.data.count);
+      setStripeConfigured(s.data.configured);
     }).finally(() => setLoading(false));
+
+    // Détecter retour Stripe (?session_id=...)
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    if (sessionId) {
+      window.history.replaceState({}, "", window.location.pathname);
+      setVerifying(true);
+      axios.get<{ paid: boolean; plan?: string; license?: { key: string; email: string } }>(
+        `/api/stripe/verify?session_id=${sessionId}`
+      ).then(({ data }) => {
+        if (data.paid && data.license) {
+          setVerifyMsg({
+            ok: true,
+            text: `✅ Paiement confirmé ! Votre licence ${data.plan === "pro_plus" ? "Pro+" : "Pro"} a été activée automatiquement.`,
+          });
+          return axios.get<License>("/api/license").then(({ data: lic }) => setLicense(lic));
+        }
+      }).catch(() => {
+        setVerifyMsg({ ok: false, text: "Impossible de vérifier le paiement. Utilisez votre clé reçue par email." });
+      }).finally(() => setVerifying(false));
+    }
   }, []);
+
+  async function handleCheckout(plan: "pro" | "pro_plus") {
+    setCheckoutLoading(plan);
+    try {
+      const { data } = await axios.post<{ url: string }>("/api/stripe/checkout", {
+        plan,
+        email: checkoutEmail || undefined,
+        successUrl: window.location.href,
+        cancelUrl: window.location.href,
+      });
+      window.location.href = data.url;
+    } catch (err: unknown) {
+      const msg = axios.isAxiosError(err) ? err.response?.data?.error : "Erreur Stripe";
+      setActivateMsg({ ok: false, text: msg ?? "Erreur" });
+      setCheckoutLoading(null);
+    }
+  }
 
   async function handleActivate(e: React.FormEvent) {
     e.preventDefault();
@@ -150,7 +201,26 @@ export function PricingView() {
           )}
         </div>
 
+        {/* Bannière vérification retour Stripe */}
+        {(verifying || verifyMsg) && (
+          <div className={`rounded-lg px-4 py-3 text-sm border ${verifyMsg?.ok ? "bg-green-900/20 border-green-700 text-green-300" : "bg-vscode-panel border-vscode-border text-vscode-muted"}`}>
+            {verifying ? "⏳ Vérification du paiement en cours…" : verifyMsg?.text}
+          </div>
+        )}
+
         {/* Plans */}
+        {stripeConfigured && currentPlan === "free" && (
+          <div className="flex items-center gap-2">
+            <input
+              type="email"
+              value={checkoutEmail}
+              onChange={(e) => setCheckoutEmail(e.target.value)}
+              placeholder="votre@email.com (pour recevoir la clé)"
+              className="flex-1 bg-vscode-panel border border-vscode-border rounded px-3 py-1.5 text-xs focus:outline-none focus:border-vscode-accent"
+            />
+            <span className="text-[10px] text-vscode-muted">← votre email pour le reçu</span>
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
           {plans.map((plan) => {
             const isActive = currentPlan === plan.id;
@@ -191,23 +261,65 @@ export function PricingView() {
                       {f}
                     </li>
                   ))}
+                  {plan.locked.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-xs text-vscode-muted line-through">
+                      <span className="mt-0.5">✗</span>
+                      {f}
+                    </li>
+                  ))}
                 </ul>
 
-                <a
-                  href={plan.ctaUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`mt-2 text-center text-xs font-semibold py-2 px-4 rounded transition-colors
-                    ${plan.highlighted
-                      ? "bg-yellow-400 text-black hover:bg-yellow-300"
-                      : plan.id === "pro"
-                        ? "bg-blue-600 text-white hover:bg-blue-500"
-                        : "bg-vscode-border text-vscode-text hover:bg-vscode-bg"
-                    }
-                    ${isActive ? "opacity-50 pointer-events-none" : ""}`}
-                >
-                  {isActive ? "✓ Plan actif" : plan.cta}
-                </a>
+                {plan.note && (
+                  <p className="text-[10px] text-vscode-muted italic border-t border-vscode-border pt-2">
+                    {plan.note}
+                  </p>
+                )}
+
+                {/* CTA */}
+                {plan.id === "free" ? (
+                  <a
+                    href={plan.ctaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 text-center text-xs font-semibold py-2 px-4 rounded transition-colors bg-vscode-border text-vscode-text hover:bg-vscode-bg"
+                  >
+                    {isActive ? "✓ Plan actif" : plan.cta}
+                  </a>
+                ) : (
+                  /* Pro / Pro+ : waitlist comme CTA principal */
+                  <div className="flex flex-col gap-1.5 mt-2">
+                    {isActive ? (
+                      <div className="text-center text-xs font-semibold py-2 px-4 rounded bg-green-700/30 text-green-300 border border-green-700/50">
+                        ✓ Plan actif
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            setWaitPlan(plan.id);
+                            document.getElementById("waitlist-section")?.scrollIntoView({ behavior: "smooth" });
+                          }}
+                          className={`text-center text-xs font-semibold py-2 px-4 rounded transition-colors w-full
+                            ${plan.highlighted
+                              ? "bg-yellow-400 text-black hover:bg-yellow-300"
+                              : "bg-blue-600 text-white hover:bg-blue-500"
+                            }`}
+                        >
+                          🔔 Accès anticipé (−30 %)
+                        </button>
+                        {stripeConfigured && (
+                          <button
+                            onClick={() => handleCheckout(plan.id as "pro" | "pro_plus")}
+                            disabled={checkoutLoading !== null}
+                            className="text-center text-[10px] py-1 px-3 rounded border border-vscode-border text-vscode-muted hover:text-vscode-text hover:border-vscode-text transition-colors disabled:opacity-50"
+                          >
+                            {checkoutLoading === plan.id ? "Redirection…" : "Acheter maintenant"}
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -254,7 +366,7 @@ export function PricingView() {
         )}
 
         {/* Waitlist */}
-        <div className="bg-vscode-panel border border-yellow-700/40 rounded-lg p-5">
+        <div id="waitlist-section" className="bg-vscode-panel border border-yellow-700/40 rounded-lg p-5">
           <div className="flex items-start justify-between mb-1">
             <h2 className="text-sm font-bold">🚀 Liste d'attente — lancement anticipé</h2>
             {waitCount !== null && waitCount > 0 && (

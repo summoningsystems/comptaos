@@ -29,6 +29,8 @@ import { pluginsRoutes } from "./routes/plugins.js";
 import { encryptionRoutes } from "./routes/encryption.js";
 import { licenseRoutes } from "./routes/license.js";
 import { waitlistRoutes } from "./routes/waitlist.js";
+import { bankingRoutes } from "./routes/banking.js";
+import { stripeRoutes } from "./routes/stripe.js";
 import staticPlugin from "@fastify/static";
 import { ensureDefaultCompany } from "./services/companiesService.js";
 import { initRepo } from "./services/gitService.js";
@@ -94,6 +96,8 @@ await app.register(pluginsRoutes,    { prefix: "/api/plugins" });
 await app.register(encryptionRoutes, { prefix: "/api/encryption" });
 await app.register(licenseRoutes,    { prefix: "" });
 await app.register(waitlistRoutes,   { prefix: "" });
+await app.register(bankingRoutes,    { prefix: "" });
+await app.register(stripeRoutes,     { prefix: "" });
 
 // Initialisation : créer l'entreprise par défaut si nécessaire
 ensureDefaultCompany();
