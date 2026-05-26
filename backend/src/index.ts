@@ -43,15 +43,6 @@ await app.register(cors, {
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
 });
 
-// Parse JSON body
-app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
-  try {
-    done(null, JSON.parse(body as string));
-  } catch (err) {
-    done(err as Error, undefined);
-  }
-});
-
 // ── Middleware API Key (optionnel) ────────────────────────────────────────────
 // Si LOCAL_API_KEY est défini dans .env, toutes les routes /api/* (sauf /health)
 // exigent l'en-tête X-API-Key ou le query param ?api_key=

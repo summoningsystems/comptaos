@@ -99,35 +99,30 @@ export async function stripeRoutes(app: FastifyInstance) {
   });
 
   // ── Webhook Stripe ────────────────────────────────────────────────────────
-  // IMPORTANT : Stripe envoie le body en raw bytes — le parser JSON est
-  // enregistré dans un scope enfant pour ne pas écraser le parser global.
+  // Le webhook Stripe doit recevoir le body brut (non-parsé) pour vérifier la signature.
 
-  app.register(async (scope) => {
-    scope.addContentTypeParser(
-      "application/json",
-      { parseAs: "string" },
-      (req, body, done) => done(null, body)
-    );
+  app.post("/api/stripe/webhook", { 
+    config: { rawBody: true } 
+  }, async (req, reply) => {
+    const sig = req.headers["stripe-signature"] as string | undefined;
+    if (!sig) return reply.status(400).send({ error: "stripe-signature manquant" });
 
-    scope.post("/api/stripe/webhook", async (req, reply) => {
-      const sig = req.headers["stripe-signature"] as string | undefined;
-      if (!sig) return reply.status(400).send({ error: "stripe-signature manquant" });
+    if (!process.env.STRIPE_WEBHOOK_SECRET) {
+      return reply.status(503).send({ error: "STRIPE_WEBHOOK_SECRET non configuré" });
+    }
 
-      if (!process.env.STRIPE_WEBHOOK_SECRET) {
-        return reply.status(503).send({ error: "STRIPE_WEBHOOK_SECRET non configuré" });
+    try {
+      // Cast req.body to string pour le webhook
+      const bodyString = req.body as string;
+      const license = await handleWebhookEvent(bodyString, sig);
+      if (license) {
+        app.log.info(`Licence émise : ${license.key} pour ${license.email}`);
       }
-
-      try {
-        const license = await handleWebhookEvent(req.body as string, sig);
-        if (license) {
-          scope.log.info(`Licence émise : ${license.key} pour ${license.email}`);
-        }
-        return reply.status(200).send({ received: true });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Erreur webhook";
-        scope.log.error(`Stripe webhook error: ${msg}`);
-        return reply.status(400).send({ error: msg });
-      }
-    });
+      return reply.status(200).send({ received: true });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur webhook";
+      app.log.error(`Stripe webhook error: ${msg}`);
+      return reply.status(400).send({ error: msg });
+    }
   });
 }
