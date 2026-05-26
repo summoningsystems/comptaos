@@ -23,7 +23,6 @@ export function CompanySelector({ onCreateNew }: Props) {
     function onOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setOpen(false);
-        setCreating(false);
       }
     }
     document.addEventListener("mousedown", onOutside);

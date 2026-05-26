@@ -587,25 +587,6 @@ export function SpreadsheetView() {
     }, 0);
   }
 
-  /** Insère la référence de cellule (ex: "B4") à la position du curseur dans la formule */
-  function insertCellRefInFormula(refKey: string) {
-    const input = inputRef.current;
-    const cursorPos = input?.selectionStart ?? editValue.length;
-    const before = editValue.slice(0, cursorPos);
-    const after = editValue.slice(cursorPos);
-    const newValue = before + refKey + after;
-    setEditValue(newValue);
-    setFormulaBarValue(newValue);
-    setAutocompleteOpen(false);
-    const newCursorPos = cursorPos + refKey.length;
-    setTimeout(() => {
-      if (input) {
-        input.focus();
-        input.setSelectionRange(newCursorPos, newCursorPos);
-      }
-    }, 0);
-  }
-
   /** Étire le contenu de la plage source vers la cellule cible (fill drag) */
   function applyFillDrag(srcStart: string, srcEnd: string | null, target: string) {
     if (!sheet) return;
@@ -1391,7 +1372,7 @@ export function SpreadsheetView() {
             >
               <table
                 className="border-collapse text-xs select-none"
-                style={{ minWidth: HEADER_COL_WIDTH + sheet.cols * DEFAULT_COL_WIDTH }}
+                style={{ minWidth: HEADER_COL_WIDTH + (sheet?.cols ?? 0) * DEFAULT_COL_WIDTH }}
               >
                 <thead>
                   <tr>
@@ -1399,7 +1380,7 @@ export function SpreadsheetView() {
                       className="bg-vscode-sidebar border border-vscode-border sticky top-0 left-0 z-20"
                       style={{ width: HEADER_COL_WIDTH, minWidth: HEADER_COL_WIDTH, height: ROW_HEIGHT }}
                     />
-                    {Array.from({ length: sheet.cols }, (_, c) => (
+                    {Array.from({ length: sheet?.cols ?? 0 }, (_, c) => (
                       <th
                         key={c}
                         className="bg-vscode-sidebar border border-vscode-border text-vscode-muted text-[10px] font-normal sticky top-0 z-10 text-center relative"
@@ -1421,14 +1402,14 @@ export function SpreadsheetView() {
                 </thead>
 
                 <tbody>
-                  {Array.from({ length: sheet.rows }, (_, r) => (
+                  {Array.from({ length: sheet?.rows ?? 0 }, (_, r) => (
                     <tr key={r}>
                       <td
                         className="bg-vscode-sidebar border border-vscode-border text-vscode-muted text-[10px] text-right pr-2 sticky left-0 z-10 select-none"
                         style={{ width: HEADER_COL_WIDTH, height: ROW_HEIGHT }}
                       >{r + 1}</td>
 
-                      {Array.from({ length: sheet.cols }, (_, c) => {
+                      {Array.from({ length: sheet?.cols ?? 0 }, (_, c) => {
                         const key = cellKey(c, r);
                         const isSelected = selectedCell === key && !selectionEnd;
                         const inRange = rangeSet.has(key);
@@ -1438,7 +1419,7 @@ export function SpreadsheetView() {
                         const isMovePreview = movePreviewSet.has(key);
                         const isMoveSrc = moveSrcSet.has(key);
                         const isFillHandle = !editingCell && key === selectionBR;
-                        const cellData = sheet.cells[key];
+                        const cellData = sheet?.cells[key];
                         const rawValue = cellData?.value;
                         const fmt = cellData?.format ?? {};
                         const displayed = displayValue(key);

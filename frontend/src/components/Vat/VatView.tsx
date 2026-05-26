@@ -26,8 +26,9 @@ function Ca3Panel({ quarters, total, year }: { quarters: QuarterData[]; total: V
     : (() => { const q = quarters.find(q => q.quarter === selectedQ); return q ? { revenue: q.revenue, expenses: q.expenses, collected: q.collected, deductible: q.deductible, net: q.net } : null; })();
 
   if (!activeData) return null;
+  const data = activeData;
 
-  const baseHT = activeData.revenue > 0 ? activeData.revenue - activeData.collected : 0;
+  const baseHT = data.revenue > 0 ? data.revenue - data.collected : 0;
   const fmt = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   function copyToClipboard() {
@@ -35,11 +36,11 @@ function Ca3Panel({ quarters, total, year }: { quarters: QuarterData[]; total: V
       `SIMULATION CA3 — ${selectedQ === "annual" ? `Annuel ${year}` : `${selectedQ} ${year}`}`,
       ``,
       `A  — Base HT (ventes 20%) :          ${fmt(baseHT)} €`,
-      `08 — TVA collectée :                 ${fmt(activeData.collected)} €`,
-      `20 — TVA déductible (achats) :       ${fmt(activeData.deductible)} €`,
-      `28 — Total taxe due (ligne 08) :     ${fmt(activeData.collected)} €`,
-      `29 — Total taxe déductible :         ${fmt(activeData.deductible)} €`,
-      `52 — TVA à payer (28 - 29) :         ${fmt(activeData.net)} €`,
+      `08 — TVA collectée :                 ${fmt(data.collected)} €`,
+      `20 — TVA déductible (achats) :       ${fmt(data.deductible)} €`,
+      `28 — Total taxe due (ligne 08) :     ${fmt(data.collected)} €`,
+      `29 — Total taxe déductible :         ${fmt(data.deductible)} €`,
+      `52 — TVA à payer (28 - 29) :         ${fmt(data.net)} €`,
     ].join("\n");
     navigator.clipboard.writeText(text).catch(() => {});
   }
@@ -89,26 +90,26 @@ function Ca3Panel({ quarters, total, year }: { quarters: QuarterData[]; total: V
           OPÉRATIONS IMPOSABLES — {selectedQ === "annual" ? `Année ${year}` : `${selectedQ} ${year}`}
         </div>
         <Ca3Row code="A" label="Base HT des opérations imposables à 20 %" value={baseHT} />
-        <Ca3Row code="08" label="Taxe due à 20 %" value={activeData.collected} color="text-blue-300" bold />
+        <Ca3Row code="08" label="Taxe due à 20 %" value={data.collected} color="text-blue-300" bold />
 
         <div className="bg-vscode-panel px-4 py-2 text-[10px] font-semibold text-green-400 uppercase tracking-widest border-t border-vscode-border">
           TVA DÉDUCTIBLE
         </div>
-        <Ca3Row code="20" label="TVA déductible sur autres biens et services" value={activeData.deductible} color="text-green-300" />
+        <Ca3Row code="20" label="TVA déductible sur autres biens et services" value={data.deductible} color="text-green-300" />
 
         <div className="bg-vscode-panel px-4 py-2 text-[10px] font-semibold text-orange-400 uppercase tracking-widest border-t border-vscode-border">
           RÉSULTAT
         </div>
-        <Ca3Row code="28" label="Total taxe due" value={activeData.collected} />
-        <Ca3Row code="29" label="Total taxe déductible" value={activeData.deductible} />
+        <Ca3Row code="28" label="Total taxe due" value={data.collected} />
+        <Ca3Row code="29" label="Total taxe déductible" value={data.deductible} />
 
-        <div className={`flex items-center gap-2 px-4 py-3 border-t-2 ${activeData.net > 0 ? "border-orange-600 bg-orange-900/20" : "border-green-600 bg-green-900/20"}`}>
+        <div className={`flex items-center gap-2 px-4 py-3 border-t-2 ${data.net > 0 ? "border-orange-600 bg-orange-900/20" : "border-green-600 bg-green-900/20"}`}>
           <span className="font-mono text-[10px] text-vscode-muted w-6 shrink-0">52</span>
           <span className="flex-1 font-bold text-vscode-text text-xs">
-            {activeData.net > 0 ? "TVA à payer (ligne 28 − 29)" : "Crédit de TVA"}
+            {data.net > 0 ? "TVA à payer (ligne 28 − 29)" : "Crédit de TVA"}
           </span>
-          <span className={`font-mono tabular-nums font-bold text-base w-32 text-right ${activeData.net > 0 ? "text-orange-300" : "text-green-300"}`}>
-            {fmt(Math.abs(activeData.net))} €
+          <span className={`font-mono tabular-nums font-bold text-base w-32 text-right ${data.net > 0 ? "text-orange-300" : "text-green-300"}`}>
+            {fmt(Math.abs(data.net))} €
           </span>
         </div>
       </div>

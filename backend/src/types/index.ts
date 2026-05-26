@@ -124,7 +124,7 @@ export interface TreasuryAlert {
 export interface CsvMappingConfig {
   date: string;
   label: string;
-  amount: string;
+  amount?: string;
   debit?: string;
   credit?: string;
   /** Colonne utilisée comme note (ex: Tiers / contrepartie) */

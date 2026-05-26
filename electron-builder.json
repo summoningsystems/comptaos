@@ -22,7 +22,8 @@
   ],
   "win": {
     "target": ["nsis"],
-    "icon": "electron/icons/icon.ico"
+    "icon": "electron/icons/icon.ico",
+    "signAndEditExecutable": false
   },
   "mac": {
     "target": ["dmg"],

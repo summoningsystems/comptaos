@@ -66,6 +66,7 @@ export function AddTransactionModal({ onClose, onSave }: Props) {
       vat: Math.round(vat * 100) / 100,
       currency: "EUR",
       category,
+      account: "main",
       status: "pending",
       paymentType: paymentType || undefined,
       notes: notes.trim() || undefined,

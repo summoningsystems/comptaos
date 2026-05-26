@@ -91,7 +91,7 @@ describe("detectCategoryFromLabel (priorité sur Penylane)", () => {
 describe("applyCategoryRules", () => {
   it("règle utilisateur écrase la détection automatique", () => {
     const csv = tabCsv(["Date", "Label", "Debit", "Credit"], [["2024-01-01", "AMAZON MARKETPLACE", "10", ""]]);
-    const rules = [{ pattern: "amazon", category: "food" as const, priority: 1 }];
+    const rules = [{ id: "rule_amazon_food", pattern: "amazon", category: "food" as const, priority: 1 }];
     const [tx] = parseCsv(csv, MAP_DEBIT_CREDIT, rules);
     expect(tx.category).toBe("food");
   });

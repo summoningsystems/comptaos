@@ -9,7 +9,7 @@ import { getCompaniesRoot } from "./companiesService.js";
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error("STRIPE_SECRET_KEY non configurée");
-  return new Stripe(key, { apiVersion: "2025-04-30" });
+  return new Stripe(key);
 }
 
 export function isStripeConfigured(): boolean {
@@ -180,10 +180,18 @@ export async function handleWebhookEvent(
 
   // Renouvellement abonnement Pro+
   if (event.type === "invoice.payment_succeeded") {
-    const invoice = event.data.object as Stripe.Invoice;
-    if (!invoice.subscription) return null;
+    const invoice = event.data.object as Stripe.Invoice & {
+      subscription?: string | Stripe.Subscription | null;
+    };
 
-    const sub = await stripe.subscriptions.retrieve(invoice.subscription as string);
+    const subscriptionId =
+      typeof invoice.subscription === "string"
+        ? invoice.subscription
+        : invoice.subscription?.id;
+
+    if (!subscriptionId) return null;
+
+    const sub = await stripe.subscriptions.retrieve(subscriptionId);
     if (sub.metadata?.comptaos !== "1" && sub.items.data[0]?.price.id !== process.env.STRIPE_PRICE_PROPLUS) {
       return null;
     }
@@ -194,7 +202,7 @@ export async function handleWebhookEvent(
 
     return issueLicense("pro_plus", email, {
       customerId: customer.id,
-      subscriptionId: invoice.subscription as string,
+      subscriptionId,
     });
   }
 

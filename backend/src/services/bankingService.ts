@@ -302,8 +302,8 @@ export async function syncAccountTransactions(
     config
   );
 
-  const existing = await txnModule.loadTransactions();
-  const existingIds = new Set(existing.map((t) => t.id));
+  const existing = await txnModule.loadAllTransactions();
+  const existingIds = new Set(existing.map((t: { id: string }) => t.id));
 
   let imported = 0;
   let skipped = 0;
