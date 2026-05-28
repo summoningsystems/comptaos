@@ -59,6 +59,7 @@ function resolveBackendPaths() {
       return {
         backendDir: asarBackendDir,
         entryScript: asarEntryScript,
+        spawnCwd: process.resourcesPath,
       };
     }
 
@@ -67,6 +68,7 @@ function resolveBackendPaths() {
     return {
       backendDir,
       entryScript: path.join(backendDir, "dist", "index.js"),
+      spawnCwd: backendDir,
     };
   }
 
@@ -75,6 +77,7 @@ function resolveBackendPaths() {
   return {
     backendDir,
     entryScript: path.join(backendDir, "dist", "index.js"),
+    spawnCwd: backendDir,
   };
 }
 
@@ -102,7 +105,7 @@ function resolveNodeRuntimePath() {
 
 // ── Démarre le backend Node ────────────────────────────────────────────────
 function startBackend() {
-  const { backendDir, entryScript } = resolveBackendPaths();
+  const { backendDir, entryScript, spawnCwd } = resolveBackendPaths();
   const runtimePath = resolveNodeRuntimePath();
 
   if (!fs.existsSync(entryScript)) {
@@ -113,11 +116,12 @@ function startBackend() {
   backendExitCode = null;
   pushBackendLog(`[main] backendDir=${backendDir}`);
   pushBackendLog(`[main] entryScript=${entryScript}`);
+  pushBackendLog(`[main] spawnCwd=${spawnCwd}`);
   pushBackendLog(`[main] backendPort=${backendPort}`);
   pushBackendLog(`[main] runtimePath=${runtimePath}`);
 
   backendProcess = spawn(runtimePath, [entryScript], {
-    cwd: backendDir,
+    cwd: spawnCwd,
     env: {
       ...process.env,
       // Permet d'exécuter Electron comme runtime Node dans le process enfant
