@@ -50,8 +50,10 @@ function findFreePort(preferred) {
 
 function resolveBackendPaths() {
   if (app.isPackaged) {
-    // En build installée, les assets sont copiés dans resources/
-    const backendDir = path.join(process.resourcesPath, "backend");
+    // En build installée, lancer depuis app.asar pour profiter de la
+    // résolution des dépendances dans node_modules embarqué.
+    const appPath = app.getAppPath();
+    const backendDir = path.join(appPath, "backend");
     return {
       backendDir,
       entryScript: path.join(backendDir, "dist", "index.js"),
