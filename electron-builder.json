@@ -17,6 +17,10 @@
       "to": "backend/dist"
     },
     {
+      "from": "backend/package.json",
+      "to": "backend/package.json"
+    },
+    {
       "from": "frontend/dist",
       "to": "frontend/dist"
     }

@@ -50,8 +50,19 @@ function findFreePort(preferred) {
 
 function resolveBackendPaths() {
   if (app.isPackaged) {
-    // En build installée, lancer depuis app.asar pour profiter de la
-    // résolution des dépendances dans node_modules embarqué.
+    // En build installée, préférer resources/backend (réel sur disque)
+    // pour garantir un cwd valide côté OS au moment du spawn.
+    const resourcesBackendDir = path.join(process.resourcesPath, "backend");
+    const resourcesEntryScript = path.join(resourcesBackendDir, "dist", "index.js");
+    const resourcesPkg = path.join(resourcesBackendDir, "package.json");
+    if (fs.existsSync(resourcesEntryScript) && fs.existsSync(resourcesPkg)) {
+      return {
+        backendDir: resourcesBackendDir,
+        entryScript: resourcesEntryScript,
+      };
+    }
+
+    // Fallback: backend packagé dans app.asar.
     const appPath = app.getAppPath();
     const backendDir = path.join(appPath, "backend");
     return {
@@ -69,7 +80,9 @@ function resolveBackendPaths() {
 }
 
 function resolveNodeRuntimePath() {
+  const installDir = path.dirname(process.resourcesPath);
   const candidates = [
+    path.join(installDir, `${app.getName()}.exe`),
     app.getPath("exe"),
     process.execPath,
     process.argv0,
