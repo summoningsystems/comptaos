@@ -7,12 +7,46 @@ const { app, BrowserWindow, dialog } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const http = require("http");
+const net = require("net");
+const fs = require("fs");
 
-const BACKEND_PORT = 3001;
-const BACKEND_URL  = `http://127.0.0.1:${BACKEND_PORT}`;
+let backendPort = 3001;
+let backendUrl  = `http://127.0.0.1:${backendPort}`;
 
 let backendProcess = null;
 let mainWindow     = null;
+let backendExited  = false;
+let backendExitCode = null;
+const backendLogLines = [];
+
+function pushBackendLog(line) {
+  backendLogLines.push(line);
+  // Garder uniquement les dernières lignes pour éviter une boîte de dialogue géante
+  if (backendLogLines.length > 40) backendLogLines.shift();
+}
+
+function getBackendLogTail() {
+  return backendLogLines.slice(-12).join("\n");
+}
+
+function findFreePort(preferred) {
+  return new Promise((resolve, reject) => {
+    const tester = net.createServer();
+    tester.once("error", () => {
+      // Port préféré occupé, demander un port libre au système
+      const auto = net.createServer();
+      auto.once("error", reject);
+      auto.listen(0, "127.0.0.1", () => {
+        const address = auto.address();
+        const chosen = typeof address === "object" && address ? address.port : preferred;
+        auto.close(() => resolve(chosen));
+      });
+    });
+    tester.listen(preferred, "127.0.0.1", () => {
+      tester.close(() => resolve(preferred));
+    });
+  });
+}
 
 function resolveBackendPaths() {
   if (app.isPackaged) {
@@ -36,9 +70,15 @@ function resolveBackendPaths() {
 function startBackend() {
   const { backendDir, entryScript } = resolveBackendPaths();
 
-  if (!require("fs").existsSync(entryScript)) {
+  if (!fs.existsSync(entryScript)) {
     throw new Error(`Backend introuvable: ${entryScript}`);
   }
+
+  backendExited = false;
+  backendExitCode = null;
+  pushBackendLog(`[main] backendDir=${backendDir}`);
+  pushBackendLog(`[main] entryScript=${entryScript}`);
+  pushBackendLog(`[main] backendPort=${backendPort}`);
 
   backendProcess = spawn(process.execPath, [entryScript], {
     cwd: backendDir,
@@ -47,16 +87,27 @@ function startBackend() {
       // Permet d'exécuter Electron comme runtime Node dans le process enfant
       ELECTRON_RUN_AS_NODE: "1",
       NODE_ENV: "production",
-      PORT: String(BACKEND_PORT),
+      PORT: String(backendPort),
       WORKSPACE_PATH: path.join(app.getPath("userData"), "workspace"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  backendProcess.stdout.on("data", (d) => process.stdout.write(`[backend] ${d}`));
-  backendProcess.stderr.on("data", (d) => process.stderr.write(`[backend] ${d}`));
+  backendProcess.stdout.on("data", (d) => {
+    const s = String(d);
+    pushBackendLog(`[stdout] ${s.trim()}`);
+    process.stdout.write(`[backend] ${s}`);
+  });
+  backendProcess.stderr.on("data", (d) => {
+    const s = String(d);
+    pushBackendLog(`[stderr] ${s.trim()}`);
+    process.stderr.write(`[backend] ${s}`);
+  });
 
-  backendProcess.on("exit", (code) => {
+  backendProcess.on("exit", (code, signal) => {
+    backendExited = true;
+    backendExitCode = code;
+    pushBackendLog(`[exit] code=${code} signal=${signal}`);
     if (code !== 0 && code !== null) {
       console.error(`[backend] processus terminé avec le code ${code}`);
     }
@@ -72,13 +123,21 @@ function startBackend() {
 function waitForBackend(retries = 40, delayMs = 500) {
   return new Promise((resolve, reject) => {
     const attempt = (n) => {
-      http.get(`${BACKEND_URL}/api/health`, (res) => {
+      if (backendExited) {
+        const tail = getBackendLogTail();
+        return reject(new Error(`Backend arrêté prématurément (code=${backendExitCode})\n\n${tail}`));
+      }
+
+      http.get(`${backendUrl}/api/health`, (res) => {
         if (res.statusCode === 200) return resolve();
         retry(n);
       }).on("error", () => retry(n));
     };
     const retry = (n) => {
-      if (n <= 0) return reject(new Error("Backend injoignable après 40 tentatives"));
+      if (n <= 0) {
+        const tail = getBackendLogTail();
+        return reject(new Error(`Backend injoignable après ${retries} tentatives\nURL: ${backendUrl}/api/health\n\nDerniers logs:\n${tail}`));
+      }
       setTimeout(() => attempt(n - 1), delayMs);
     };
     attempt(retries);
@@ -99,12 +158,15 @@ function createWindow() {
     },
   });
 
-  mainWindow.loadURL(BACKEND_URL);
+  mainWindow.loadURL(backendUrl);
   mainWindow.on("closed", () => { mainWindow = null; });
 }
 
 // ── Cycle de vie de l'app ──────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  backendPort = await findFreePort(3001);
+  backendUrl = `http://127.0.0.1:${backendPort}`;
+
   startBackend();
 
   try {
