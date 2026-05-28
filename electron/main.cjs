@@ -14,15 +14,38 @@ const BACKEND_URL  = `http://127.0.0.1:${BACKEND_PORT}`;
 let backendProcess = null;
 let mainWindow     = null;
 
+function resolveBackendPaths() {
+  if (app.isPackaged) {
+    // En build installée, les assets sont copiés dans resources/
+    const backendDir = path.join(process.resourcesPath, "backend");
+    return {
+      backendDir,
+      entryScript: path.join(backendDir, "dist", "index.js"),
+    };
+  }
+
+  // En dev, on lance depuis le repo
+  const backendDir = path.join(__dirname, "..", "backend");
+  return {
+    backendDir,
+    entryScript: path.join(backendDir, "dist", "index.js"),
+  };
+}
+
 // ── Démarre le backend Node ────────────────────────────────────────────────
 function startBackend() {
-  const backendDir  = path.join(__dirname, "..", "backend");
-  const entryScript = path.join(backendDir, "dist", "index.js");
+  const { backendDir, entryScript } = resolveBackendPaths();
+
+  if (!require("fs").existsSync(entryScript)) {
+    throw new Error(`Backend introuvable: ${entryScript}`);
+  }
 
   backendProcess = spawn(process.execPath, [entryScript], {
     cwd: backendDir,
     env: {
       ...process.env,
+      // Permet d'exécuter Electron comme runtime Node dans le process enfant
+      ELECTRON_RUN_AS_NODE: "1",
       NODE_ENV: "production",
       PORT: String(BACKEND_PORT),
       WORKSPACE_PATH: path.join(app.getPath("userData"), "workspace"),
@@ -37,6 +60,11 @@ function startBackend() {
     if (code !== 0 && code !== null) {
       console.error(`[backend] processus terminé avec le code ${code}`);
     }
+  });
+
+  backendProcess.on("error", (err) => {
+    console.error("[backend] échec de démarrage:", err);
+    dialog.showErrorBox("Erreur backend", String(err));
   });
 }
 
