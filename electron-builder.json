@@ -21,6 +21,10 @@
       "to": "backend/package.json"
     },
     {
+      "from": "backend/node_modules",
+      "to": "backend/node_modules"
+    },
+    {
       "from": "frontend/dist",
       "to": "frontend/dist"
     }

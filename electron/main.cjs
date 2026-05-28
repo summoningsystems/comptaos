@@ -50,25 +50,30 @@ function findFreePort(preferred) {
 
 function resolveBackendPaths() {
   if (app.isPackaged) {
-    // En build installée, privilégier app.asar/backend pour bénéficier
-    // de la résolution des dépendances dans le node_modules embarqué.
-    const asarBackendDir = path.join(app.getAppPath(), "backend");
-    const asarEntryScript = path.join(asarBackendDir, "dist", "index.js");
-    const asarPkg = path.join(asarBackendDir, "package.json");
-    if (fs.existsSync(asarEntryScript) && fs.existsSync(asarPkg)) {
+    // En build installée, privilégier resources/backend pour garantir
+    // un dossier de travail réel et des dépendances backend embarquées.
+    const resourcesBackendDir = path.join(process.resourcesPath, "backend");
+    const resourcesEntryScript = path.join(resourcesBackendDir, "dist", "index.js");
+    const resourcesPkg = path.join(resourcesBackendDir, "package.json");
+    const resourcesNodeModules = path.join(resourcesBackendDir, "node_modules");
+    if (
+      fs.existsSync(resourcesEntryScript) &&
+      fs.existsSync(resourcesPkg) &&
+      fs.existsSync(resourcesNodeModules)
+    ) {
       return {
-        backendDir: asarBackendDir,
-        entryScript: asarEntryScript,
-        spawnCwd: process.resourcesPath,
+        backendDir: resourcesBackendDir,
+        entryScript: resourcesEntryScript,
+        spawnCwd: resourcesBackendDir,
       };
     }
 
-    // Fallback: backend unpacked dans resources/backend.
-    const backendDir = path.join(process.resourcesPath, "backend");
+    // Fallback: backend packagé dans app.asar.
+    const backendDir = path.join(app.getAppPath(), "backend");
     return {
       backendDir,
       entryScript: path.join(backendDir, "dist", "index.js"),
-      spawnCwd: backendDir,
+      spawnCwd: process.resourcesPath,
     };
   }
 
