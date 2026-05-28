@@ -68,9 +68,30 @@ function resolveBackendPaths() {
   };
 }
 
+function resolveNodeRuntimePath() {
+  const candidates = [
+    app.getPath("exe"),
+    process.execPath,
+    process.argv0,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // Ignore invalid candidate and continue with next one.
+    }
+  }
+
+  throw new Error(
+    `Runtime Electron introuvable pour lancer le backend. Candidats: ${candidates.join(" | ")}`
+  );
+}
+
 // ── Démarre le backend Node ────────────────────────────────────────────────
 function startBackend() {
   const { backendDir, entryScript } = resolveBackendPaths();
+  const runtimePath = resolveNodeRuntimePath();
 
   if (!fs.existsSync(entryScript)) {
     throw new Error(`Backend introuvable: ${entryScript}`);
@@ -81,8 +102,9 @@ function startBackend() {
   pushBackendLog(`[main] backendDir=${backendDir}`);
   pushBackendLog(`[main] entryScript=${entryScript}`);
   pushBackendLog(`[main] backendPort=${backendPort}`);
+  pushBackendLog(`[main] runtimePath=${runtimePath}`);
 
-  backendProcess = spawn(process.execPath, [entryScript], {
+  backendProcess = spawn(runtimePath, [entryScript], {
     cwd: backendDir,
     env: {
       ...process.env,
