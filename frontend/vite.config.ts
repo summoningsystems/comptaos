@@ -3,7 +3,11 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
 
+// En production (BASE_PATH env), on déploie sous un sous-dossier (ex: /comptaos/)
+const BASE_PATH = process.env.BASE_PATH ?? "/";
+
 export default defineConfig({
+  base: BASE_PATH,
   plugins: [
     react(),
     VitePWA({
@@ -16,7 +20,7 @@ export default defineConfig({
         theme_color: "#1c6cbf",
         background_color: "#1e1e2e",
         display: "standalone",
-        start_url: "/",
+        start_url: BASE_PATH,
         icons: [
           { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "icons/icon-512.png", sizes: "512x512", type: "image/png" },
@@ -29,7 +33,9 @@ export default defineConfig({
         // Cache réseau pour l'API : stale-while-revalidate
         runtimeCaching: [
           {
-            urlPattern: /^https?:\/\/localhost:3001\/api\//,
+            urlPattern: ({ url }) => url.pathname.includes("/api/"),
+            // urlPattern historique (dev local)
+            // urlPattern: /^https?:\/\/localhost:3001\/api\//,
             handler: "NetworkFirst",
             options: {
               cacheName: "api-cache",

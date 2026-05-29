@@ -1,5 +1,5 @@
 import { useEffect, useState, Component, type ReactNode } from "react";
-import axios from "axios";
+import { api } from "./api/client";
 import { Sidebar } from "./components/Layout/Sidebar";
 import { TabBar } from "./components/Layout/TabBar";
 import { StatusBar } from "./components/Layout/StatusBar";
@@ -163,10 +163,10 @@ export default function App() {
 
   useEffect(() => {
     if (authState !== "app") return;
-    axios.get<{ alerts: { level: string; message: string }[]; count: number }>("/api/alerts")
+    api.get<{ alerts: { level: string; message: string }[]; count: number }>("/alerts")
       .then(({ data }) => { setAlertCount(data.count); setAlertMessages(data.alerts.slice(0, 5)); })
       .catch(() => {});
-    axios.get<import("./types").Transaction[]>("/api/transactions")
+    api.get<import("./types").Transaction[]>("/transactions")
       .then(({ data }) => setPendingCount(data.filter((t) => t.status === "pending").length))
       .catch(() => {});
     // Ouvrir automatiquement le wizard si aucune entreprise (non annulable)

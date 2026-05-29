@@ -172,10 +172,12 @@ if (AUTH_ENABLED && !hasUsers()) {
 }
 
 const PORT = parseInt(process.env.PORT ?? "3001");
+// En production, écouter sur toutes les interfaces pour que Nginx (Docker) puisse proxifier
+const HOST = process.env.HOST ?? (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
 
 try {
-  await app.listen({ port: PORT, host: "127.0.0.1" });
-  console.log(`ComptaOS backend démarré sur http://127.0.0.1:${PORT}`);
+  await app.listen({ port: PORT, host: HOST });
+  console.log(`ComptaOS backend démarré sur http://${HOST}:${PORT}`);
 } catch (err) {
   app.log.error(err);
   process.exit(1);

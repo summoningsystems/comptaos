@@ -16,7 +16,8 @@ import {
   CompanyProfile,
 } from "../types";
 
-export const api = axios.create({ baseURL: "/api" });
+// En production (base path configuré dans vite.config.ts), l'API est sous BASE_URL/api
+export const api = axios.create({ baseURL: `${import.meta.env.BASE_URL}api` });
 
 // Injecte automatiquement X-API-Key si configurée (stockée dans localStorage)
 const _apiKey = localStorage.getItem("comptaos_api_key");
@@ -30,7 +31,7 @@ export async function uploadInvoicePdf(file: File): Promise<{
 }> {
   const form = new FormData();
   form.append("file", file);
-  const { data } = await axios.post("/api/ocr/invoice", form, {
+  const { data } = await api.post("/ocr/invoice", form, {
     headers: { "Content-Type": "multipart/form-data" },
   });
   return data;
