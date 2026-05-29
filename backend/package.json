@@ -18,9 +18,11 @@
     "@fastify/multipart": "^8.3.0",
     "@fastify/static": "^7.0.4",
     "@mistralai/mistralai": "^2.2.1",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "fastify": "^4.28.1",
     "js-yaml": "^4.1.0",
+    "jsonwebtoken": "^9.0.3",
     "openai": "^6.38.0",
     "papaparse": "^5.4.1",
     "pdf-lib": "^1.17.1",
@@ -29,7 +31,9 @@
     "yaml": "^2.4.5"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/js-yaml": "^4.0.9",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.14.0",
     "@types/papaparse": "^5.3.14",
     "@vitest/coverage-v8": "^4.1.7",

@@ -18,6 +18,39 @@ let _watcher: fsSync.FSWatcher | null = null;
 
 function invalidateCache() { _cache = null; }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function deriveVatRate(txn: Transaction): number {
+  if (typeof txn.vat_rate === "number" && Number.isFinite(txn.vat_rate)) {
+    return Math.max(0, txn.vat_rate);
+  }
+
+  const ttcAbs = Math.abs(txn.amount_ttc ?? 0);
+  const vatAbs = Math.abs(txn.vat ?? 0);
+  const htAbs = Math.max(0, ttcAbs - vatAbs);
+  if (htAbs <= 0) return 0;
+
+  return round2((vatAbs / htAbs) * 100);
+}
+
+function normalizeTransaction(txn: Transaction): Transaction {
+  const rate = deriveVatRate(txn);
+  const factor = 1 + rate / 100;
+
+  // Si le taux est renseigné, les montants HT/TVA sont recalculés pour rester cohérents.
+  const amount_ht = factor > 0 ? round2((txn.amount_ttc ?? 0) / factor) : round2(txn.amount_ttc ?? 0);
+  const vat = round2((txn.amount_ttc ?? 0) - amount_ht);
+
+  return {
+    ...txn,
+    vat_rate: rate,
+    amount_ht,
+    vat,
+  };
+}
+
 /**
  * À appeler lors d'un changement d'entreprise active pour forcer le rechargement
  * depuis le bon dossier et réinitialiser le watcher sur le bon répertoire.
@@ -56,7 +89,7 @@ export async function loadAllTransactions(): Promise<Transaction[]> {
     try {
       const content = await fs.readFile(path.join(dir, file), "utf-8");
       const parsed = yaml.parse(content) as Transaction;
-      if (parsed?.id) transactions.push(parsed);
+      if (parsed?.id) transactions.push(normalizeTransaction(parsed));
     } catch {
       // fichier corrompu — on l'ignore silencieusement
     }
@@ -70,8 +103,9 @@ export async function loadAllTransactions(): Promise<Transaction[]> {
 export async function saveTransaction(txn: Transaction): Promise<void> {
   const dir = txnDir();
   await fs.mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, `${txn.id}.yaml`);
-  await fs.writeFile(filePath, yaml.stringify(txn), "utf-8");
+  const normalized = normalizeTransaction(txn);
+  const filePath = path.join(dir, `${normalized.id}.yaml`);
+  await fs.writeFile(filePath, yaml.stringify(normalized), "utf-8");
   invalidateCache();
 }
 
@@ -87,7 +121,7 @@ export async function updateTransaction(id: string, patch: Partial<Transaction>)
   const filePath = path.join(dir, `${id}.yaml`);
   const content = await fs.readFile(filePath, "utf-8");
   const txn = yaml.parse(content) as Transaction;
-  const updated = { ...txn, ...patch };
+  const updated = normalizeTransaction({ ...txn, ...patch });
   await fs.writeFile(filePath, yaml.stringify(updated), "utf-8");
   invalidateCache();
   return updated;

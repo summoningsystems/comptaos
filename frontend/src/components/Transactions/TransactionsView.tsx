@@ -103,6 +103,77 @@ const CATEGORIES: Category[] = [
   "taxes", "equipment", "subscription", "rent", "legal", "insurance", "misc",
 ];
 
+const VAT_RATE_PRESETS = [0, 2.1, 5.5, 10, 20];
+
+function roundVatRate(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function snapVatRate(value: number): number {
+  const rounded = roundVatRate(value);
+  const preset = VAT_RATE_PRESETS.find((candidate) => Math.abs(candidate - rounded) <= 0.2);
+  return preset ?? rounded;
+}
+
+function formatVatRateInput(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(roundVatRate(value));
+}
+
+function VatRateEditor({
+  txn,
+  value,
+  onSave,
+}: {
+  txn: Transaction;
+  value: number;
+  onSave: (id: string, vat_rate: number) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(formatVatRateInput(value));
+
+  useEffect(() => {
+    setDraft(formatVatRateInput(value));
+  }, [value, txn.id]);
+
+  async function commit(rawValue: string) {
+    const parsed = Number(rawValue.replace(",", "."));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setDraft(formatVatRateInput(value));
+      return;
+    }
+
+    const normalized = roundVatRate(parsed);
+    if (Math.abs(normalized - value) < 0.001) {
+      setDraft(formatVatRateInput(value));
+      return;
+    }
+
+    await onSave(txn.id, normalized);
+  }
+
+  return (
+    <input
+      list="vat-rate-presets"
+      inputMode="decimal"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => { void commit(draft); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.currentTarget.blur();
+        }
+        if (e.key === "Escape") {
+          setDraft(formatVatRateInput(value));
+          e.currentTarget.blur();
+        }
+      }}
+      className="mt-1 w-[72px] text-[10px] bg-vscode-bg border border-vscode-border rounded px-1 py-0.5 text-vscode-muted focus:outline-none focus:border-vscode-accent"
+      title="Taux de TVA appliqué à la transaction"
+      aria-label="Taux de TVA"
+      placeholder="0"
+    />
+  );
+}
+
 // ── Smart Catégoriser ─────────────────────────────────────────────────────────
 
 interface SmartSuggestion {
@@ -303,6 +374,20 @@ export function TransactionsView() {
     setTransactions((prev) => prev.map((t) => (t.id === id ? updated : t)));
   }
 
+  function inferredVatRate(txn: Transaction): number {
+    if (typeof txn.vat_rate === "number" && Number.isFinite(txn.vat_rate)) return roundVatRate(txn.vat_rate);
+    const ttcAbs = Math.abs(txn.amount_ttc ?? 0);
+    const vatAbs = Math.abs(txn.vat ?? 0);
+    const htAbs = Math.max(0, ttcAbs - vatAbs);
+    if (htAbs <= 0) return 0;
+    return snapVatRate((vatAbs / htAbs) * 100);
+  }
+
+  async function handleVatRateChange(id: string, vat_rate: number) {
+    const updated = await updateTransaction(id, { vat_rate });
+    setTransactions((prev) => prev.map((t) => (t.id === id ? updated : t)));
+  }
+
   async function handleTagsChange(id: string, tags: string[]) {
     const updated = await updateTransaction(id, { tags });
     setTransactions((prev) => prev.map((t) => (t.id === id ? updated : t)));
@@ -383,7 +468,11 @@ export function TransactionsView() {
 
   async function handleAcceptSuggestion() {
     if (!aiSuggestion) return;
-    await handleCategoryChange(aiSuggestion.id, aiSuggestion.category as Category);
+    const updated = await updateTransaction(aiSuggestion.id, {
+      category: aiSuggestion.category as Category,
+      vat_rate: aiSuggestion.vat_rate,
+    });
+    setTransactions((prev) => prev.map((t) => (t.id === aiSuggestion.id ? updated : t)));
     setAiSuggestion(null);
   }
 
@@ -520,6 +609,11 @@ export function TransactionsView() {
 
   return (
     <div className="flex flex-col h-full">
+      <datalist id="vat-rate-presets">
+        {VAT_RATE_PRESETS.map((rate) => (
+          <option key={rate} value={rate} />
+        ))}
+      </datalist>
       {showAddModal && (
         <AddTransactionModal
           onClose={() => setShowAddModal(false)}
@@ -868,7 +962,15 @@ export function TransactionsView() {
                                 )}
                               </td>
                               <td className={`px-2 py-1.5 whitespace-nowrap font-mono ${txn.amount_ttc >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                {txn.amount_ttc >= 0 ? "+" : ""}{txn.amount_ttc.toFixed(2)} €
+                                <div>{txn.amount_ttc >= 0 ? "+" : ""}{txn.amount_ttc.toFixed(2)} €</div>
+                                <div className="mt-1 flex items-center gap-1">
+                                  <VatRateEditor
+                                    txn={txn}
+                                    value={inferredVatRate(txn)}
+                                    onSave={handleVatRateChange}
+                                  />
+                                  <span className="text-[10px] text-vscode-muted">%</span>
+                                </div>
                               </td>
                               <td className="px-2 py-1.5">
                                 <select value={txn.category} onChange={(e) => handleCategoryChange(txn.id, e.target.value as Category)}

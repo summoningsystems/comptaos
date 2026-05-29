@@ -29,6 +29,19 @@ function pdfHeader(page: PDFPage, title: string, subtitle: string, fontBold: PDF
 }
 
 export async function reportsRoutes(app: FastifyInstance) {
+  type VatTransactionDetail = {
+    id: string;
+    date: string;
+    label: string;
+    category: string;
+    amount_ttc: number;
+    amount_ht: number;
+    vat: number;
+    vat_rate: number;
+    direction: "collected" | "deductible";
+    quarter: string;
+  };
+
   /**
    * POST /api/reports/generate
    */
@@ -78,6 +91,33 @@ export async function reportsRoutes(app: FastifyInstance) {
       };
     });
 
+    const details: VatTransactionDetail[] = txns
+      .filter((t) => Math.abs(t.vat) > 0.0001)
+      .map((t) => {
+        const month = t.date.slice(5, 7);
+        const quarter = quarters.find((q) => q.months.includes(month))?.label ?? "T1";
+        const direction: "collected" | "deductible" = t.amount_ttc >= 0 ? "collected" : "deductible";
+        const inferredVatRate = typeof t.vat_rate === "number"
+          ? t.vat_rate
+          : Math.abs(t.amount_ht) > 0
+            ? parseFloat(((Math.abs(t.vat) / Math.abs(t.amount_ht)) * 100).toFixed(2))
+            : 0;
+
+        return {
+          id: t.id,
+          date: t.date,
+          label: t.label,
+          category: t.category,
+          amount_ttc: parseFloat(t.amount_ttc.toFixed(2)),
+          amount_ht: parseFloat(t.amount_ht.toFixed(2)),
+          vat: parseFloat(t.vat.toFixed(2)),
+          vat_rate: inferredVatRate,
+          direction,
+          quarter,
+        };
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
+
     const totalCollected = rows.reduce((s, r) => s + r.collected, 0);
     const totalDeductible = rows.reduce((s, r) => s + r.deductible, 0);
 
@@ -89,6 +129,7 @@ export async function reportsRoutes(app: FastifyInstance) {
         deductible: parseFloat(totalDeductible.toFixed(2)),
         net: parseFloat((totalCollected - totalDeductible).toFixed(2)),
       },
+      details,
     });
   });
 

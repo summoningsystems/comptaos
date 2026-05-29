@@ -1,24 +1,145 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
+import { fetchVatSummary, updateTransaction, type VatQuarterData, type VatSummaryData, type VatTransactionDetail } from "../../api/client";
+import type { Category } from "../../types";
 
-interface QuarterData {
-  quarter: string;
-  collected: number;
-  deductible: number;
-  net: number;
-  revenue: number;
-  expenses: number;
+const CATEGORIES: Category[] = [
+  "hosting", "software", "salary", "travel", "restaurant", "food",
+  "taxes", "equipment", "subscription", "rent", "legal", "insurance", "misc",
+];
+
+const VAT_RATE_PRESETS = [0, 2.1, 5.5, 10, 20];
+
+function roundVatRate(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
-interface VatSummary {
-  year: string;
-  quarters: QuarterData[];
-  total: { collected: number; deductible: number; net: number };
+function formatVatRateInput(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(roundVatRate(value));
 }
 
-const API = axios.create({ baseURL: "http://localhost:3001/api" });
+function EditableTextCell({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: string;
+  disabled: boolean;
+  onSave: (nextValue: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(value);
 
-function Ca3Panel({ quarters, total, year }: { quarters: QuarterData[]; total: VatSummary["total"]; year: string }) {
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  async function commit() {
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === value) {
+      setDraft(value);
+      return;
+    }
+    await onSave(trimmed);
+  }
+
+  return (
+    <input
+      value={draft}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => { void commit(); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          setDraft(value);
+          e.currentTarget.blur();
+        }
+      }}
+      className="w-full bg-transparent border border-transparent rounded px-1 py-0.5 text-vscode-text focus:bg-vscode-bg focus:border-vscode-accent focus:outline-none disabled:opacity-60"
+      aria-label="Libellé de transaction"
+    />
+  );
+}
+
+function EditableCategoryCell({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: Category;
+  disabled: boolean;
+  onSave: (nextValue: Category) => Promise<void>;
+}) {
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(e) => { void onSave(e.target.value as Category); }}
+      className="w-full bg-transparent border border-transparent rounded px-1 py-0.5 text-vscode-muted focus:bg-vscode-bg focus:border-vscode-accent focus:outline-none disabled:opacity-60"
+      aria-label="Catégorie de transaction"
+    >
+      {CATEGORIES.map((category) => (
+        <option key={category} value={category}>{category}</option>
+      ))}
+    </select>
+  );
+}
+
+function EditableVatRateCell({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: number;
+  disabled: boolean;
+  onSave: (nextValue: number) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(formatVatRateInput(value));
+
+  useEffect(() => {
+    setDraft(formatVatRateInput(value));
+  }, [value]);
+
+  async function commit() {
+    const parsed = Number(draft.replace(",", "."));
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setDraft(formatVatRateInput(value));
+      return;
+    }
+
+    const normalized = roundVatRate(parsed);
+    if (Math.abs(normalized - value) < 0.001) {
+      setDraft(formatVatRateInput(value));
+      return;
+    }
+
+    await onSave(normalized);
+  }
+
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <input
+        list="vat-rate-presets-vat-view"
+        inputMode="decimal"
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => { void commit(); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setDraft(formatVatRateInput(value));
+            e.currentTarget.blur();
+          }
+        }}
+        className="w-16 bg-transparent border border-transparent rounded px-1 py-0.5 text-right font-mono text-vscode-text focus:bg-vscode-bg focus:border-vscode-accent focus:outline-none disabled:opacity-60"
+        aria-label="Taux de TVA"
+      />
+      <span className="text-vscode-muted">%</span>
+    </div>
+  );
+}
+
+function Ca3Panel({ quarters, total, year }: { quarters: VatQuarterData[]; total: VatSummaryData["total"]; year: string }) {
   const [selectedQ, setSelectedQ] = useState<string>("annual");
 
   const activeData = selectedQ === "annual"
@@ -124,16 +245,28 @@ function Ca3Panel({ quarters, total, year }: { quarters: QuarterData[]; total: V
 export function VatView() {
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(String(currentYear));
-  const [data, setData] = useState<VatSummary | null>(null);
+  const [data, setData] = useState<VatSummaryData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [detailQuarter, setDetailQuarter] = useState<string>("annual");
+  const [savingIds, setSavingIds] = useState<string[]>([]);
 
   async function load(y: string) {
     setLoading(true);
     try {
-      const { data: d } = await API.get<VatSummary>(`/reports/vat-summary?year=${y}`);
-      setData(d);
+      const summary = await fetchVatSummary(y);
+      setData(summary);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveDetailPatch(id: string, patch: { label?: string; category?: Category; vat_rate?: number }) {
+    setSavingIds((current) => current.includes(id) ? current : [...current, id]);
+    try {
+      await updateTransaction(id, patch);
+      await load(year);
+    } finally {
+      setSavingIds((current) => current.filter((item) => item !== id));
     }
   }
 
@@ -153,11 +286,23 @@ export function VatView() {
         >
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
         </select>
+        <button
+          onClick={() => load(year)}
+          className="text-xs text-vscode-muted hover:text-vscode-text border border-vscode-border rounded px-2 py-1"
+        >
+          ↺ Recharger
+        </button>
         {loading && <span className="text-vscode-muted text-xs">Calcul…</span>}
       </div>
 
       {data && (
         <>
+          <datalist id="vat-rate-presets-vat-view">
+            {VAT_RATE_PRESETS.map((rate) => (
+              <option key={rate} value={rate} />
+            ))}
+          </datalist>
+
           {/* Résumé annuel */}
           <div className="grid grid-cols-3 gap-4 max-w-2xl">
             <div className="bg-vscode-sidebar border border-vscode-border rounded-lg p-4">
@@ -183,7 +328,7 @@ export function VatView() {
 
           {/* Note d'avertissement */}
           <div className="bg-yellow-900/20 border border-yellow-700/50 rounded px-3 py-2 text-[11px] text-yellow-300/80 max-w-2xl">
-            ⚠ Ces montants sont calculés sur la base des taux TVA saisis lors de l'import. Vérifiez avec votre expert-comptable avant soumission.
+            ⚠ Ces montants sont calculés à partir des taux TVA actuellement enregistrés sur chaque transaction. Après une modification de taux dans l'onglet Transactions, clique sur Recharger pour recalculer immédiatement ce tableau.
           </div>
 
           {/* Tableau par trimestre */}
@@ -243,6 +388,85 @@ export function VatView() {
 
           {/* Simulateur CA3 */}
           <Ca3Panel quarters={data.quarters} total={data.total} year={year} />
+
+          <div className="max-w-5xl">
+            <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+              <h3 className="text-xs font-semibold text-vscode-muted uppercase tracking-wide">Transactions avec TVA</h3>
+              <div className="flex items-center gap-3">
+                {savingIds.length > 0 && <span className="text-[11px] text-vscode-muted">Enregistrement…</span>}
+                <select
+                  value={detailQuarter}
+                  onChange={(e) => setDetailQuarter(e.target.value)}
+                  className="bg-vscode-bg border border-vscode-border text-vscode-text text-xs rounded px-2 py-1 focus:outline-none focus:border-vscode-accent"
+                >
+                  <option value="annual">Annuel {year}</option>
+                  {data.quarters.map((q) => <option key={q.quarter} value={q.quarter}>{q.quarter} {year}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="border border-vscode-border rounded overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-vscode-panel">
+                  <tr>
+                    <th className="text-left px-3 py-2 text-vscode-muted">Date</th>
+                    <th className="text-left px-3 py-2 text-vscode-muted">Libellé</th>
+                    <th className="text-left px-3 py-2 text-vscode-muted">Catégorie</th>
+                    <th className="text-right px-3 py-2 text-vscode-muted">Taux</th>
+                    <th className="text-right px-3 py-2 text-vscode-muted">HT</th>
+                    <th className="text-right px-3 py-2 text-vscode-muted">TVA</th>
+                    <th className="text-right px-3 py-2 text-vscode-muted">TTC</th>
+                    <th className="text-left px-3 py-2 text-vscode-muted">Type</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.details
+                    .filter((item) => detailQuarter === "annual" || item.quarter === detailQuarter)
+                    .map((item) => (
+                      <tr key={item.id} className="border-t border-vscode-border">
+                        <td className="px-3 py-2 text-vscode-muted font-mono">{item.date}</td>
+                        <td className="px-3 py-2 text-vscode-text min-w-[220px]">
+                          <EditableTextCell
+                            value={item.label}
+                            disabled={savingIds.includes(item.id)}
+                            onSave={(label) => saveDetailPatch(item.id, { label })}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-vscode-muted min-w-[140px]">
+                          <EditableCategoryCell
+                            value={item.category as Category}
+                            disabled={savingIds.includes(item.id)}
+                            onSave={(category) => saveDetailPatch(item.id, { category })}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-vscode-text">
+                          <EditableVatRateCell
+                            value={item.vat_rate}
+                            disabled={savingIds.includes(item.id)}
+                            onSave={(vat_rate) => saveDetailPatch(item.id, { vat_rate })}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-vscode-text">{item.amount_ht.toFixed(2)} €</td>
+                        <td className={`px-3 py-2 text-right font-mono ${item.direction === "collected" ? "text-blue-300" : "text-green-300"}`}>{Math.abs(item.vat).toFixed(2)} €</td>
+                        <td className={`px-3 py-2 text-right font-mono ${item.amount_ttc >= 0 ? "text-green-400" : "text-red-400"}`}>{item.amount_ttc.toFixed(2)} €</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex rounded px-2 py-0.5 text-[10px] ${item.direction === "collected" ? "bg-blue-900/40 text-blue-300" : "bg-green-900/40 text-green-300"}`}>
+                            {item.direction === "collected" ? "TVA collectée" : "TVA déductible"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  {data.details.filter((item) => detailQuarter === "annual" || item.quarter === detailQuarter).length === 0 && (
+                    <tr className="border-t border-vscode-border">
+                      <td colSpan={8} className="px-3 py-6 text-center text-vscode-muted">
+                        Aucune transaction avec TVA sur cette période.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </>
       )}
     </div>

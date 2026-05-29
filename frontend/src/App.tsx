@@ -30,10 +30,15 @@ import { ProfitLossView } from "./components/ProfitLoss/ProfitLossView";
 import { PluginsView } from "./components/Plugins/PluginsView";
 import { PricingView } from "./components/Pricing/PricingView";
 import { BankingView } from "./components/Banking/BankingView";
+import { UsersView } from "./components/Auth/UsersView";
 import { CommandPalette } from "./components/Layout/CommandPalette";
 import { OnboardingWizard } from "./components/Onboarding/OnboardingWizard";
 import { useAppStore } from "./stores/appStore";
 import { CompanySelector } from "./components/Company/CompanySelector";
+import { LoginView } from "./components/Auth/LoginView";
+import { SetupView } from "./components/Auth/SetupView";
+import { AcceptInviteView } from "./components/Auth/AcceptInviteView";
+import { fetchAuthStatus, fetchMe, logout, type AuthUser } from "./api/auth";
 import type { TabType } from "./types";
 
 type SidebarSection = "explorer" | "transactions" | "import" | "history";
@@ -64,6 +69,7 @@ const TAB_LABELS: Record<TabType, string> = {
   plugins:      "Plugins",
   pricing:      "Plans & Licence",
   banking:      "Connexion bancaire",
+  users:        "Utilisateurs",
 };
 
 // ── ErrorBoundary — empêche les pages blanches sur crash d'un composant ──────
@@ -91,7 +97,7 @@ class ViewErrorBoundary extends Component<{ children: ReactNode }, { error: stri
 }
 
 /** Rendu d'une vue par son type (partagé fenêtre principale + popup) */
-function ViewContent({ type, tabId, path }: { type: TabType; tabId?: string; path?: string }) {
+function ViewContent({ type, tabId, path, currentUser }: { type: TabType; tabId?: string; path?: string; currentUser: AuthUser | null }) {
   return (
     <>
       {type === "dashboard"    && <Dashboard />}
@@ -119,11 +125,130 @@ function ViewContent({ type, tabId, path }: { type: TabType; tabId?: string; pat
       {type === "plugins"       && <PluginsView />}
       {type === "pricing"       && <PricingView />}
       {type === "banking"       && <BankingView />}
+      {type === "users"         && currentUser && <UsersView currentUser={currentUser} />}
     </>
   );
 }
 
 export default function App() {
+  // ── TOUS les hooks en premier (Rules of Hooks) ────────────────────────────
+  type AuthState = "loading" | "setup" | "login" | "invite" | "app";
+  const [authState, setAuthState] = useState<AuthState>("loading");
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const [sidebarSection, setSidebarSection] = useState<SidebarSection>("explorer");
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [alertCount, setAlertCount] = useState(0);
+  const [showAlertDrop, setShowAlertDrop] = useState(false);
+  const [alertMessages, setAlertMessages] = useState<{ level: string; message: string }[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [showCompanyWizard, setShowCompanyWizard] = useState(false);
+  const [wizardCanCancel, setWizardCanCancel] = useState(false);
+  const { tabs, activeTabId, openTab } = useAppStore();
+
+  useEffect(() => {
+    // Détecter un lien d'invitation dans l'URL
+    const params = new URLSearchParams(window.location.search);
+    const invite = params.get("invite");
+    if (invite) {
+      setInviteToken(invite);
+      setAuthState("invite");
+      return;
+    }
+    void checkAuth();
+  }, []);
+
+  useEffect(() => {
+    if (authState !== "app") return;
+    axios.get<{ alerts: { level: string; message: string }[]; count: number }>("/api/alerts")
+      .then(({ data }) => { setAlertCount(data.count); setAlertMessages(data.alerts.slice(0, 5)); })
+      .catch(() => {});
+    axios.get<import("./types").Transaction[]>("/api/transactions")
+      .then(({ data }) => setPendingCount(data.filter((t) => t.status === "pending").length))
+      .catch(() => {});
+    // Ouvrir automatiquement le wizard si aucune entreprise (non annulable)
+    import("./api/client").then(({ fetchCompanies }) =>
+      fetchCompanies().then((list) => { if (list.length === 0) { setWizardCanCancel(false); setShowCompanyWizard(true); } })
+    );
+  }, [authState]);
+
+  // Raccourci Ctrl+K / Cmd+K → ouvre la recherche globale
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen((o) => !o);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const activeTab = tabs.find((t) => t.id === activeTabId);
+
+  // ── Fonctions ─────────────────────────────────────────────────────────────
+  async function checkAuth() {
+    try {
+      const status = await fetchAuthStatus();
+      if (!status.authEnabled) { setAuthState("app"); return; }
+      if (status.needsSetup) { setAuthState("setup"); return; }
+      const user = await fetchMe();
+      setCurrentUser(user);
+      setAuthState("app");
+    } catch {
+      setAuthState("login");
+    }
+  }
+
+  async function handleLogout() {
+    await logout().catch(() => {});
+    setCurrentUser(null);
+    setAuthState("login");
+    setShowUserMenu(false);
+  }
+
+  function handleSectionChange(section: SidebarSection) {
+    setSidebarSection(section);
+    if (section === "transactions") {
+      openTab({ id: "transactions", title: "Transactions", type: "transactions" });
+    }
+    if (section === "import") {
+      openTab({ id: "import", title: "Import CSV", type: "import" });
+    }
+    if (section === "history") {
+      openTab({ id: "history", title: "Historique", type: "history" });
+    }
+  }
+
+  // ── Retours conditionnels (après tous les hooks) ──────────────────────────
+  if (authState === "loading") {
+    return (
+      <div className="flex items-center justify-center h-screen bg-vscode-bg">
+        <span className="text-vscode-muted text-sm">Chargement…</span>
+      </div>
+    );
+  }
+
+  if (authState === "invite" && inviteToken) {
+    return (
+      <AcceptInviteView
+        token={inviteToken}
+        onAccepted={(user) => { setCurrentUser(user); setInviteToken(null); setAuthState("app"); }}
+      />
+    );
+  }
+
+  if (authState === "setup") {
+    return <SetupView onSetup={(user) => { setCurrentUser(user); setAuthState("app"); }} />;
+  }
+
+  if (authState === "login") {
+    return <LoginView onLogin={(user) => { setCurrentUser(user); setAuthState("app"); }} />;
+  }
+
   // ── Mode fenêtre autonome (?view=<type>) ──────────────────────────────────
   const standaloneView = new URLSearchParams(window.location.search).get("view") as TabType | null;
   if (standaloneView && standaloneView in TAB_LABELS) {
@@ -140,62 +265,10 @@ export default function App() {
           >✕ Fermer</button>
         </div>
         <div className="flex-1 min-h-0">
-          <ViewContent type={standaloneView} />
+          <ViewContent type={standaloneView} currentUser={currentUser} />
         </div>
       </div>
     );
-  }
-
-  // ── Mode normal ───────────────────────────────────────────────────────────
-  const [sidebarSection, setSidebarSection] = useState<SidebarSection>("explorer");
-  const [copilotOpen, setCopilotOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [alertCount, setAlertCount] = useState(0);
-  const [showAlertDrop, setShowAlertDrop] = useState(false);
-  const [alertMessages, setAlertMessages] = useState<{ level: string; message: string }[]>([]);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [showCompanyWizard, setShowCompanyWizard] = useState(false);
-  const [wizardCanCancel, setWizardCanCancel] = useState(false);
-  const { tabs, activeTabId, openTab } = useAppStore();
-
-  useEffect(() => {
-    axios.get<{ alerts: { level: string; message: string }[]; count: number }>("/api/alerts")
-      .then(({ data }) => { setAlertCount(data.count); setAlertMessages(data.alerts.slice(0, 5)); })
-      .catch(() => {});
-    axios.get<import("./types").Transaction[]>("/api/transactions")
-      .then(({ data }) => setPendingCount(data.filter((t) => t.status === "pending").length))
-      .catch(() => {});
-    // Ouvrir automatiquement le wizard si aucune entreprise (non annulable)
-    import("./api/client").then(({ fetchCompanies }) =>
-      fetchCompanies().then((list) => { if (list.length === 0) { setWizardCanCancel(false); setShowCompanyWizard(true); } })
-    );
-  }, []);
-
-  const activeTab = tabs.find((t) => t.id === activeTabId);
-
-  // Raccourci Ctrl+K / Cmd+K → ouvre la recherche globale
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
-        e.preventDefault();
-        setSearchOpen((o) => !o);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  function handleSectionChange(section: SidebarSection) {
-    setSidebarSection(section);
-    if (section === "transactions") {
-      openTab({ id: "transactions", title: "Transactions", type: "transactions" });
-    }
-    if (section === "import") {
-      openTab({ id: "import", title: "Import CSV", type: "import" });
-    }
-    if (section === "history") {
-      openTab({ id: "history", title: "Historique", type: "history" });
-    }
   }
 
   return (
@@ -392,6 +465,40 @@ export default function App() {
           >
             ✨ Copilote
           </button>
+          {/* Menu utilisateur */}
+          {currentUser && (
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu((o) => !o)}
+                className="text-xs flex items-center gap-1.5 text-vscode-muted hover:text-vscode-text transition-colors border border-vscode-border rounded px-2 py-0.5"
+                title="Compte utilisateur"
+              >
+                👤 {currentUser.displayName}
+              </button>
+              {showUserMenu && (
+                <div className="absolute right-0 top-6 z-50 w-52 bg-vscode-panel border border-vscode-border rounded-lg shadow-xl overflow-hidden">
+                  <div className="px-3 py-2 border-b border-vscode-border">
+                    <p className="text-xs font-semibold text-vscode-text">{currentUser.displayName}</p>
+                    <p className="text-[10px] text-vscode-muted">{currentUser.username} · {currentUser.role}</p>
+                  </div>
+                  {(currentUser.role === "owner" || currentUser.role === "admin") && (
+                    <button
+                      onClick={() => { openTab({ id: "users", title: "Utilisateurs", type: "users" }); setShowUserMenu(false); }}
+                      className="w-full text-left px-3 py-2 text-xs text-vscode-text hover:bg-vscode-bg transition-colors"
+                    >
+                      👥 Gérer les utilisateurs
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { void handleLogout(); }}
+                    className="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-red-900/20 transition-colors"
+                  >
+                    🚪 Se déconnecter
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -405,7 +512,7 @@ export default function App() {
           <div className="flex-1 min-h-0">
             <ViewErrorBoundary key={activeTab?.id ?? "empty"}>
               {activeTab
-                ? <ViewContent type={activeTab.type} tabId={activeTab.id} path={(activeTab as { path?: string }).path} />
+                ? <ViewContent type={activeTab.type} tabId={activeTab.id} path={(activeTab as { path?: string }).path} currentUser={currentUser} />
                 : (
                   <div className="flex flex-col items-center justify-center h-full gap-3 text-vscode-muted select-none">
                     <span className="text-4xl">📊</span>

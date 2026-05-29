@@ -6,6 +6,8 @@ const CATEGORIES: Category[] = [
   "taxes", "equipment", "subscription", "rent", "legal", "insurance", "misc",
 ];
 
+const VAT_RATE_PRESETS = [0, 2.1, 5.5, 10, 20];
+
 interface Props {
   onClose: () => void;
   onSave: (txn: Omit<Transaction, "id">) => Promise<void>;
@@ -64,6 +66,7 @@ export function AddTransactionModal({ onClose, onSave }: Props) {
       amount_ttc,
       amount_ht: Math.round(amount_ht * 100) / 100,
       vat: Math.round(vat * 100) / 100,
+      vat_rate: vatRate,
       currency: "EUR",
       category,
       account: "main",
@@ -143,16 +146,20 @@ export function AddTransactionModal({ onClose, onSave }: Props) {
             </div>
             <div>
               <label className="block text-[10px] text-vscode-muted mb-0.5">TVA %</label>
-              <select
+              <input
+                list="vat-rate-presets-create"
+                type="number"
+                min={0}
+                step="0.01"
                 value={vatRate}
                 onChange={(e) => setVatRate(Number(e.target.value))}
                 className="w-full bg-vscode-bg border border-vscode-border text-vscode-text text-xs rounded px-2 py-1 focus:outline-none focus:border-vscode-accent"
-              >
-                <option value={0}>0%</option>
-                <option value={5.5}>5,5%</option>
-                <option value={10}>10%</option>
-                <option value={20}>20%</option>
-              </select>
+              />
+              <datalist id="vat-rate-presets-create">
+                {VAT_RATE_PRESETS.map((rate) => (
+                  <option key={rate} value={rate} />
+                ))}
+              </datalist>
             </div>
           </div>
 

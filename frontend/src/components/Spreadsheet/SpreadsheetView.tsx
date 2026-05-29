@@ -322,7 +322,7 @@ export function SpreadsheetView() {
     fetchAccountingVariables().then(setAccountingVars);
   }, []);
 
-  const recompute = useCallback((s: SpreadsheetSheet, vars: Record<string, number>) => {
+  const recompute = useCallback((doc: SpreadsheetDoc, sheetIdx: number, vars: Record<string, number>) => {
     const version = ++recomputeVersionRef.current;
     setIsRecomputing(true);
 
@@ -333,7 +333,16 @@ export function SpreadsheetView() {
     }
 
     // Envoyer les données au worker (thread séparé)
-    worker.postMessage({ type: "COMPUTE", sheetCells: s.cells, vars, version });
+    worker.postMessage({
+      type: "COMPUTE",
+      sheets: doc.sheets.map((sheetItem) => ({
+        name: sheetItem.name,
+        cells: sheetItem.cells,
+      })),
+      activeSheetIdx: sheetIdx,
+      vars,
+      version,
+    });
 
     // Résultat unique pour cette version
     const onMessage = (e: MessageEvent) => {
@@ -354,8 +363,8 @@ export function SpreadsheetView() {
   }, []);
 
   useEffect(() => {
-    if (sheet) recompute(sheet, accountingVars);
-  }, [sheet, accountingVars, recompute]);
+    if (activeDoc) recompute(activeDoc, activeSheetIdx, accountingVars);
+  }, [activeDoc, activeSheetIdx, accountingVars, recompute]);
 
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
@@ -474,8 +483,6 @@ export function SpreadsheetView() {
     redoStackRef.current.push(JSON.parse(JSON.stringify(activeDoc.sheets)));
     const newDoc = { ...activeDoc, sheets: prevSheets };
     setActiveDoc(newDoc);
-    const s = prevSheets[activeSheetIdx] ?? prevSheets[0];
-    if (s) recompute(s, accountingVars);
     setDirty(true);
     scheduleSave(newDoc);
   }
@@ -486,8 +493,6 @@ export function SpreadsheetView() {
     undoStackRef.current.push(JSON.parse(JSON.stringify(activeDoc.sheets)));
     const newDoc = { ...activeDoc, sheets: nextSheets };
     setActiveDoc(newDoc);
-    const s = nextSheets[activeSheetIdx] ?? nextSheets[0];
-    if (s) recompute(s, accountingVars);
     setDirty(true);
     scheduleSave(newDoc);
   }
@@ -499,7 +504,6 @@ export function SpreadsheetView() {
     const newDoc = { ...activeDoc, sheets: newSheets };
     setActiveDoc(newDoc);
     setDirty(true);
-    recompute(updatedSheet, accountingVars);
     scheduleSave(newDoc);
   }
 

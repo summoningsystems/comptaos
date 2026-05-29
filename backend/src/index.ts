@@ -31,6 +31,9 @@ import { licenseRoutes } from "./routes/license.js";
 import { waitlistRoutes } from "./routes/waitlist.js";
 import { bankingRoutes } from "./routes/banking.js";
 import { stripeRoutes } from "./routes/stripe.js";
+import { authRoutes, COOKIE_NAME } from "./routes/auth.js";
+import { hasUsers, getJwtSecret } from "./services/authService.js";
+import jwt from "jsonwebtoken";
 import staticPlugin from "@fastify/static";
 import { ensureDefaultCompany } from "./services/companiesService.js";
 import { initRepo } from "./services/gitService.js";
@@ -43,9 +46,7 @@ await app.register(cors, {
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
 });
 
-// ── Middleware API Key (optionnel) ────────────────────────────────────────────
-// Si LOCAL_API_KEY est défini dans .env, toutes les routes /api/* (sauf /health)
-// exigent l'en-tête X-API-Key ou le query param ?api_key=
+// ── Middleware API Key (optionnel, rétrocompat) ──────────────────────────────
 const LOCAL_API_KEY = process.env.LOCAL_API_KEY?.trim();
 if (LOCAL_API_KEY) {
   app.addHook("onRequest", async (req, reply) => {
@@ -58,6 +59,51 @@ if (LOCAL_API_KEY) {
     }
   });
   console.log("[auth] API key activée — accès restreint");
+}
+
+// ── Middleware Auth JWT (activé quand AUTH_ENABLED=true) ──────────────────────
+const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";
+
+// Routes publiques qui n'ont pas besoin de JWT même avec auth activée
+const PUBLIC_PATHS = [
+  "/api/health",
+  "/api/auth/status",
+  "/api/auth/login",
+  "/api/auth/setup",
+];
+
+function isPublicPath(url: string): boolean {
+  if (PUBLIC_PATHS.includes(url)) return true;
+  // Invitations
+  if (/^\/api\/auth\/invite\/[^/]+(\/(accept))?$/.test(url)) return true;
+  // Assets statiques (frontend)
+  if (!url.startsWith("/api/")) return true;
+  return false;
+}
+
+if (AUTH_ENABLED) {
+  app.addHook("onRequest", async (req, reply) => {
+    if (isPublicPath(req.url)) return;
+    // Lire le token depuis le cookie
+    const cookieHeader = req.headers.cookie ?? "";
+    const cookiePairs = Object.fromEntries(
+      cookieHeader
+        .split(";")
+        .map((c) => c.trim().split("=").map(decodeURIComponent))
+        .filter((p) => p.length >= 2)
+        .map((p) => [p[0].trim(), p.slice(1).join("=").trim()]),
+    );
+    const token = cookiePairs[COOKIE_NAME];
+    if (!token) {
+      return reply.status(401).send({ error: "Non authentifié." });
+    }
+    try {
+      jwt.verify(token, getJwtSecret());
+    } catch {
+      return reply.status(401).send({ error: "Session expirée." });
+    }
+  });
+  console.log("[auth] Authentification JWT activée (AUTH_ENABLED=true).");
 }
 
 // Routes
@@ -89,6 +135,7 @@ await app.register(licenseRoutes,    { prefix: "" });
 await app.register(waitlistRoutes,   { prefix: "" });
 await app.register(bankingRoutes,    { prefix: "" });
 await app.register(stripeRoutes,     { prefix: "" });
+await app.register(authRoutes,       { prefix: "/api/auth" });
 
 // Initialisation : créer l'entreprise par défaut si nécessaire
 ensureDefaultCompany();
@@ -112,6 +159,16 @@ if (process.env.NODE_ENV === "production") {
   app.setNotFoundHandler((_req, reply) => {
     reply.sendFile("index.html");
   });
+}
+
+// Avertissement si auth est désactivée en mode production
+if (!AUTH_ENABLED && process.env.NODE_ENV === "production") {
+  console.warn("[auth] ⚠ AUTH_ENABLED n'est pas activé. Ajoutez AUTH_ENABLED=true dans .env pour protéger l'accès en mode serveur.");
+}
+
+// Log si aucun utilisateur n'existe et auth est activée
+if (AUTH_ENABLED && !hasUsers()) {
+  console.log("[auth] Aucun utilisateur trouvé — un setup initial sera requis au premier accès.");
 }
 
 const PORT = parseInt(process.env.PORT ?? "3001");

@@ -383,6 +383,40 @@ export interface PnlData {
   resultat_net: number;
 }
 
+export interface VatTransactionDetail {
+  id: string;
+  date: string;
+  label: string;
+  category: string;
+  amount_ttc: number;
+  amount_ht: number;
+  vat: number;
+  vat_rate: number;
+  direction: "collected" | "deductible";
+  quarter: string;
+}
+
+export interface VatQuarterData {
+  quarter: string;
+  collected: number;
+  deductible: number;
+  net: number;
+  revenue: number;
+  expenses: number;
+}
+
+export interface VatSummaryData {
+  year: string;
+  quarters: VatQuarterData[];
+  total: { collected: number; deductible: number; net: number };
+  details: VatTransactionDetail[];
+}
+
+export async function fetchVatSummary(year: string): Promise<VatSummaryData> {
+  const { data } = await api.get<VatSummaryData>(`/reports/vat-summary?year=${year}`);
+  return data;
+}
+
 export async function fetchPnl(year: string): Promise<PnlData> {
   const { data } = await api.get<PnlData>(`/reports/pnl?year=${year}`);
   return data;

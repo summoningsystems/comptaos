@@ -4,6 +4,7 @@ export interface Transaction {
   label: string;
   amount_ht: number;
   vat: number;
+  vat_rate?: number;
   amount_ttc: number;
   currency: string;
   category: Category;

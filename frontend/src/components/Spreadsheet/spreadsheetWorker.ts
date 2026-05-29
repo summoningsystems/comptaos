@@ -3,7 +3,7 @@
  * Tourne dans un thread OS séparé : l'UI ne gèle jamais pendant la réévaluation.
  *
  * Protocol postMessage :
- *   → { type: "COMPUTE", sheetCells, vars, version }
+ *   → { type: "COMPUTE", sheets, activeSheetIdx, vars, version }
  *   ← { type: "RESULT",  computed, version }
  *   ← { type: "ERROR",   message, version }
  */
@@ -31,15 +31,60 @@ function parseCell(key: string): { col: number; row: number } | null {
   };
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function quoteSheetName(name: string): string {
+  return `'${name.replace(/'/g, "''")}'`;
+}
+
+function normalizeFormulaReferences(formula: string, sheetNames: string[]): string {
+  if (!formula.startsWith("=")) return formula;
+
+  let normalized = formula;
+  const namesToQuote = [...sheetNames]
+    .filter((name) => /[^A-Za-z0-9_]/.test(name))
+    .sort((a, b) => b.length - a.length);
+
+  for (const sheetName of namesToQuote) {
+    normalized = normalized.replace(
+      new RegExp(`${escapeRegExp(sheetName)}!`, "g"),
+      `${quoteSheetName(sheetName)}!`
+    );
+  }
+
+  return normalized;
+}
+
+function formatHyperFormulaValue(raw: unknown): string | number | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "string" || typeof raw === "number") return raw;
+
+  if (typeof raw === "object") {
+    const maybeError = raw as { value?: string; message?: string };
+    if (typeof maybeError.value === "string") return maybeError.value;
+    if (typeof maybeError.message === "string") return `#ERR:${maybeError.message.slice(0, 16)}`;
+  }
+
+  return String(raw);
+}
+
 // ── Types (inline pour ne pas importer spreadsheetTypes) ────────────────────
 
 interface WorkerCell {
   value: string | number | null;
 }
 
+interface WorkerSheet {
+  name: string;
+  cells: Record<string, WorkerCell>;
+}
+
 interface ComputeRequest {
   type: "COMPUTE";
-  sheetCells: Record<string, WorkerCell>;
+  sheets: WorkerSheet[];
+  activeSheetIdx: number;
   vars: Record<string, number>;
   version: number;
 }
@@ -47,41 +92,62 @@ interface ComputeRequest {
 // ── Handler principal ───────────────────────────────────────────────────────
 
 self.onmessage = (e: MessageEvent<ComputeRequest>) => {
-  const { type, sheetCells, vars, version } = e.data;
+  const { type, sheets, activeSheetIdx, vars, version } = e.data;
   if (type !== "COMPUTE") return;
 
   try {
-    // 1. Détecter les dimensions réelles de la feuille
-    let maxRow = 0, maxCol = 0;
-    const entries = Object.entries(sheetCells).filter(
-      ([, cell]) => cell.value !== null && cell.value !== undefined && cell.value !== ""
+    // 1. Construire toutes les feuilles pour permettre les références inter-feuilles.
+    const sourceSheets = Array.isArray(sheets) ? sheets : [];
+    const normalizedSheetNames = sourceSheets.map((src, i) => src.name?.trim() || `Sheet${i + 1}`);
+    const safeActiveSheetIdx = Math.min(
+      Math.max(activeSheetIdx ?? 0, 0),
+      Math.max(sourceSheets.length - 1, 0)
     );
+    const hfSheets: Record<string, (string | number | null)[][]> = {};
 
-    for (const [key] of entries) {
-      const pos = parseCell(key);
-      if (pos) {
-        if (pos.row > maxRow) maxRow = pos.row;
-        if (pos.col > maxCol) maxCol = pos.col;
+    for (let i = 0; i < sourceSheets.length; i++) {
+      const src = sourceSheets[i];
+      const entries = Object.entries(src.cells ?? {}).filter(
+        ([, cell]) => cell.value !== null && cell.value !== undefined && cell.value !== ""
+      );
+
+      let maxRow = 0;
+      let maxCol = 0;
+      for (const [key] of entries) {
+        const pos = parseCell(key);
+        if (pos) {
+          if (pos.row > maxRow) maxRow = pos.row;
+          if (pos.col > maxCol) maxCol = pos.col;
+        }
       }
+
+      const usedRows = Math.max(1, maxRow + 1);
+      const usedCols = Math.max(1, maxCol + 1);
+
+      const matrix: (string | number | null)[][] = Array.from(
+        { length: usedRows },
+        () => Array(usedCols).fill(null)
+      );
+
+      for (const [key, cell] of entries) {
+        const pos = parseCell(key);
+        if (pos && pos.row < usedRows && pos.col < usedCols) {
+          matrix[pos.row][pos.col] = typeof cell.value === "string"
+            ? normalizeFormulaReferences(cell.value, normalizedSheetNames)
+            : cell.value;
+        }
+      }
+
+      const sheetName = normalizedSheetNames[i];
+      hfSheets[sheetName] = matrix;
     }
 
-    const usedRows = maxRow + 1;
-    const usedCols = maxCol + 1;
-
-    // 2. Construire la matrice (uniquement la plage utilisée)
-    const matrix: (string | number | null)[][] = Array.from(
-      { length: usedRows },
-      () => Array(usedCols).fill(null)
-    );
-    for (const [key, cell] of entries) {
-      const pos = parseCell(key);
-      if (pos && pos.row < usedRows && pos.col < usedCols) {
-        matrix[pos.row][pos.col] = cell.value;
-      }
+    if (Object.keys(hfSheets).length === 0) {
+      hfSheets.Sheet1 = [[null]];
     }
 
-    // 3. Instancier HyperFormula
-    const hf = HyperFormula.buildFromArray(matrix, {
+    // 2. Instancier HyperFormula
+    const hf = HyperFormula.buildFromSheets(hfSheets, {
       licenseKey: "gpl-v3",
       // Désactiver les fonctions inutilisées pour réduire le temps d'init
       functionPlugins: [],
@@ -96,33 +162,46 @@ self.onmessage = (e: MessageEvent<ComputeRequest>) => {
       }
     }
 
-    // 5. Évaluer toutes les cellules
+    // 4. Évaluer uniquement les cellules non vides de la feuille active,
+    // tout en permettant des références vers les autres feuilles.
+    const activeSheet = sourceSheets[safeActiveSheetIdx];
     const computed: Record<string, string | number | null> = {};
-    for (const [key, cell] of Object.entries(sheetCells)) {
+    if (!activeSheet) {
+      hf.destroy();
+      self.postMessage({ type: "RESULT", computed, version });
+      return;
+    }
+
+    const activeSheetName = activeSheet.name?.trim() || `Sheet${safeActiveSheetIdx + 1}`;
+    const activeSheetId = hf.getSheetId(activeSheetName);
+    if (activeSheetId === undefined) {
+      hf.destroy();
+      self.postMessage({
+        type: "ERROR",
+        message: `Feuille introuvable: ${activeSheetName}`,
+        version,
+      });
+      return;
+    }
+    const activeCells = activeSheet.cells ?? {};
+
+    for (const [key, cell] of Object.entries(activeCells)) {
       if (!cell.value && cell.value !== 0) continue;
       const pos = parseCell(key);
       if (!pos) continue;
 
-      // Cellule hors de la plage construite → valeur brute
-      if (pos.row >= usedRows || pos.col >= usedCols) {
-        computed[key] = cell.value;
-        continue;
-      }
-
       try {
-        const raw = hf.getCellValue({ sheet: 0, row: pos.row, col: pos.col });
-        computed[key] = raw instanceof Error
-          ? `#ERR:${raw.message.slice(0, 16)}`
-          : (raw as string | number | null);
+        const raw = hf.getCellValue({ sheet: activeSheetId, row: pos.row, col: pos.col });
+        computed[key] = formatHyperFormulaValue(raw);
       } catch {
         computed[key] = cell.value;
       }
     }
 
-    // 6. Libérer la mémoire HyperFormula
+    // 5. Libérer la mémoire HyperFormula
     hf.destroy();
 
-    // 7. Renvoyer le résultat au thread principal
+    // 6. Renvoyer le résultat au thread principal
     self.postMessage({ type: "RESULT", computed, version });
 
   } catch (err) {
