@@ -40,7 +40,7 @@ interface PowensAccount {
   iban?: string;
   type: string;
   balance: number;
-  connection_id: number;
+  id_connection: number;
   currency?: { id: string };
   deleted?: string | null;
   disabled?: boolean;
@@ -243,7 +243,7 @@ export async function refreshConnections(config: BankingConfig): Promise<BankCon
   const connections: BankConnection[] = connData.connections.map((conn) => {
     const existingConn = existing.find((c) => c.connectionId === conn.id);
     const accounts: BankAccount[] = accData.accounts
-      .filter((a) => a.connection_id === conn.id && !a.deleted && !a.disabled)
+      .filter((a) => a.id_connection === conn.id && !a.deleted && !a.disabled)
       .map((a) => {
         const existingAcc = existingConn?.accounts.find((ea) => ea.id === a.id);
         return {
@@ -325,7 +325,7 @@ export async function syncAccountTransactions(
       category: "misc",
       account: String(accountId),
       status: "pending",
-      notes: `Import� via PSD2 (Powens) � ${label}`,
+      notes: `Importé via PSD2 (Powens) — ${label}`,
       tags: ["bank_import"],
     };
 
