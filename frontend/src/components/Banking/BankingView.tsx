@@ -153,6 +153,13 @@ export function BankingView() {
             {config.configured && step === "connections" && (
               <>
                 <button
+                  onClick={handleRefresh}
+                  className="text-xs border border-vscode-border text-vscode-muted px-3 py-1.5 rounded hover:text-vscode-text"
+                  title="Rafraîchir la liste des connexions depuis Powens"
+                >
+                  ↻ Rafraîchir
+                </button>
+                <button
                   onClick={handleConnect}
                   disabled={connectLoading}
                   className="text-xs bg-vscode-accent text-white px-3 py-1.5 rounded hover:opacity-90 disabled:opacity-50"
