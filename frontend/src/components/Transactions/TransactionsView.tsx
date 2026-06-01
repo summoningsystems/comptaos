@@ -536,11 +536,12 @@ export function TransactionsView() {
   const balanceOut = filtered.filter((t) => t.amount_ttc < 0).reduce((s, t) => s + Math.abs(t.amount_ttc), 0);
   const balance = balanceIn - balanceOut;
 
-  // Détection de doublons : même date + libellé norm. + montant
+  // Détection de doublons : même date + libellé norm. + montant (hors rejected)
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
   const duplicateIds = (() => {
     const seen = new Map<string, string[]>();
     for (const t of transactions) {
+      if (t.status === "rejected") continue;
       const key = `${t.date}|${t.label.trim().toLowerCase()}|${t.amount_ttc}`;
       if (!seen.has(key)) seen.set(key, []);
       seen.get(key)!.push(t.id);
