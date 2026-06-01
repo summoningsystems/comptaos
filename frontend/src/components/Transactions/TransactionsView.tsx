@@ -317,17 +317,21 @@ export function TransactionsView() {
     setLoading(true);
     try {
       const [data, tags] = await Promise.all([fetchTransactions(), fetchAllTags()]);
-      setTransactions(data);
-      setAllTags(tags);
+      const safeData = Array.isArray(data) ? data : [];
+      const safeTags = Array.isArray(tags) ? tags : [];
+      setTransactions(safeData);
+      setAllTags(safeTags);
       // Tout replier par défaut
       const keys = new Set<string>();
-      for (const t of data) {
+      for (const t of safeData) {
         const year = t.date.slice(0, 4);
         const month = t.date.slice(5, 7);
         keys.add(year);
         keys.add(`${year}-${month}`);
       }
       setCollapsed(keys);
+    } catch (err) {
+      console.error("[TransactionsView] load() error:", err);
     } finally {
       setLoading(false);
     }

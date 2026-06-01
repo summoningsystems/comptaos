@@ -142,7 +142,7 @@ export function UsersView({ currentUser }: Props) {
   }
 
   const inviteLink = createdInvite
-    ? `${window.location.origin}/?invite=${createdInvite.token}`
+    ? `${window.location.origin}${import.meta.env.BASE_URL}?invite=${createdInvite.token}`
     : null;
 
   const pendingInvitations = invitations.filter((i) => !i.usedAt && new Date(i.expiresAt) > new Date());
@@ -476,7 +476,7 @@ export function UsersView({ currentUser }: Props) {
                       <div className="flex justify-end gap-2">
                         <button
                           onClick={() => {
-                            const link = `${window.location.origin}/?invite=${inv.token}`;
+                            const link = `${window.location.origin}${import.meta.env.BASE_URL}?invite=${inv.token}`;
                             void navigator.clipboard.writeText(link);
                           }}
                           className="text-[10px] text-vscode-muted hover:text-vscode-text"

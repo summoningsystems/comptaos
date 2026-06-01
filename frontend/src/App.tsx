@@ -1,6 +1,6 @@
 import { useEffect, useState, Component, type ReactNode } from "react";
 import { api } from "./api/client";
-import { Sidebar } from "./components/Layout/Sidebar";
+import { Sidebar, type SidebarSection } from "./components/Layout/Sidebar";
 import { TabBar } from "./components/Layout/TabBar";
 import { StatusBar } from "./components/Layout/StatusBar";
 import { FileEditor } from "./components/Editor/FileEditor";
@@ -41,7 +41,8 @@ import { AcceptInviteView } from "./components/Auth/AcceptInviteView";
 import { fetchAuthStatus, fetchMe, logout, type AuthUser } from "./api/auth";
 import type { TabType } from "./types";
 
-type SidebarSection = "explorer" | "transactions" | "import" | "history";
+
+
 
 const TAB_LABELS: Record<TabType, string> = {
   dashboard:    "Dashboard",
@@ -138,7 +139,7 @@ export default function App() {
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const [sidebarSection, setSidebarSection] = useState<SidebarSection>("explorer");
+  const [sidebarSection, setSidebarSection] = useState<SidebarSection>("compta");
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [alertCount, setAlertCount] = useState(0);
@@ -212,15 +213,6 @@ export default function App() {
 
   function handleSectionChange(section: SidebarSection) {
     setSidebarSection(section);
-    if (section === "transactions") {
-      openTab({ id: "transactions", title: "Transactions", type: "transactions" });
-    }
-    if (section === "import") {
-      openTab({ id: "import", title: "Import CSV", type: "import" });
-    }
-    if (section === "history") {
-      openTab({ id: "history", title: "Historique", type: "history" });
-    }
   }
 
   // ── Retours conditionnels (après tous les hooks) ──────────────────────────
@@ -280,149 +272,14 @@ export default function App() {
         />
       )}
       {/* Title bar */}
-      <div className="flex items-center justify-between px-4 h-12 bg-vscode-panel border-b border-vscode-border shrink-0 select-none">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 px-4 h-10 bg-vscode-panel border-b border-vscode-border shrink-0 select-none">
+        <div className="flex items-center gap-3 shrink-0">
           <span className="text-xs text-vscode-muted font-semibold tracking-wide">ComptaOS</span>
           <CompanySelector onCreateNew={() => { setWizardCanCancel(true); setShowCompanyWizard(true); }} />
         </div>
-        <div className="flex gap-4">
-          <button
-            onClick={() => openTab({ id: "dashboard", title: "Dashboard", type: "dashboard" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={() => handleSectionChange("import")}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            Import CSV
-          </button>
-          <button
-            onClick={() => openTab({ id: "ocr", title: "OCR PDF", type: "ocr" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            OCR PDF
-          </button>
-          <button
-            onClick={() => handleSectionChange("transactions")}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors relative"
-          >
-            Transactions
-            {pendingCount > 0 && (
-              <span className="ml-1 px-1 py-0 bg-orange-600 text-white text-[10px] rounded-full align-middle">
-                {pendingCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => openTab({ id: "tiers", title: "Tiers", type: "tiers" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            🏢 Tiers
-          </button>
-          <button
-            onClick={() => openTab({ id: "vat", title: "TVA", type: "vat" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            📊 TVA
-          </button>
-          <button
-            onClick={() => openTab({ id: "budgets", title: "Budgets", type: "budgets" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            🎯 Budgets
-          </button>
-          <button
-            onClick={() => openTab({ id: "reports", title: "Rapports", type: "reports" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            Rapports
-          </button>
-          <button
-            onClick={() => openTab({ id: "recurring", title: "Frais", type: "recurring" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            🔄 Frais
-          </button>
-          <button
-            onClick={() => openTab({ id: "invoices", title: "Factures", type: "invoices" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            🧾 Factures
-          </button>
-          <button
-            onClick={() => openTab({ id: "quotes", title: "Devis", type: "quotes" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            📋 Devis
-          </button>
-          <button
-            onClick={() => openTab({ id: "spreadsheets", title: "Tableaux", type: "spreadsheets" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            🧮 Tableaux
-          </button>
-          <button
-            onClick={() => openTab({ id: "journal", title: "Journal", type: "journal" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            📒 Journal
-          </button>
-          <button
-            onClick={() => openTab({ id: "reconcile", title: "Rapprochement", type: "reconcile" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            🔗 Rapprochement
-          </button>
-          <button
-            onClick={() => openTab({ id: "banking", title: "Connexion bancaire", type: "banking" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            🏦 Banque PSD2
-          </button>
-          <button
-            onClick={() => openTab({ id: "templates", title: "Modèles", type: "templates" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            📋 Modèles
-          </button>
-          <button
-            onClick={() => openTab({ id: "treasury", title: "Trésorerie", type: "treasury" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            💰 Trésorerie
-          </button>
-          <button
-            onClick={() => openTab({ id: "profitloss", title: "Bilan / P&L", type: "profitloss" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            📈 Bilan / P&L
-          </button>
-          <button
-            onClick={() => openTab({ id: "export", title: "Export", type: "export" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            ⬇ Export
-          </button>
-          <button
-            onClick={() => openTab({ id: "settings", title: "Paramètres", type: "settings" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            ⚙️ Paramètres
-          </button>
-          <button
-            onClick={() => openTab({ id: "plugins", title: "Plugins", type: "plugins" })}
-            className="text-xs text-vscode-muted hover:text-vscode-text transition-colors"
-          >
-            🧩 Plugins
-          </button>
-          <button
-            onClick={() => openTab({ id: "pricing", title: "Plans & Licence", type: "pricing" })}
-            className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors font-semibold border border-yellow-700/50 rounded px-2 py-0.5"
-          >
-            ⭐ Plans
-          </button>
+        <div className="flex-1" />
+        {/* Actions fixes */}
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => setSearchOpen(true)}
             className="text-xs text-vscode-muted hover:text-vscode-text transition-colors border border-vscode-border rounded px-2 py-0.5"
@@ -504,7 +361,7 @@ export default function App() {
 
       {/* Main area */}
       <div className="flex flex-1 min-h-0">
-        <Sidebar activeSection={sidebarSection} onSectionChange={handleSectionChange} />
+        <Sidebar activeSection={sidebarSection} onSectionChange={handleSectionChange} pendingCount={pendingCount} />
 
         <div className="flex flex-col flex-1 min-w-0">
           <TabBar />

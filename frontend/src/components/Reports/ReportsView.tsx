@@ -1,7 +1,6 @@
 import { useState } from "react";
-import axios from "axios";
 import { useAppStore } from "../../stores/appStore";
-import { fetchPnl, PnlData } from "../../api/client";
+import { api, fetchPnl, PnlData } from "../../api/client";
 
 type ReportType = "monthly" | "vat" | "activity" | "pnl";
 
@@ -119,7 +118,7 @@ export function ReportsView() {
         const data = await fetchPnl(periods.pnl);
         setPnlData(data);
       } else {
-        const { data } = await axios.post("/api/reports/generate", {
+        const { data } = await api.post("/reports/generate", {
           type: activeTab,
           period: periods[activeTab],
         });

@@ -1,4 +1,4 @@
-import axios from "axios";
+import { api } from "./client";
 
 export interface SearchResult {
   type: "transaction" | "file";
@@ -15,8 +15,6 @@ export interface SearchResult {
   extension?: string;
   excerpt?: string;
 }
-
-const api = axios.create({ baseURL: "/api" });
 
 export async function searchWorkspace(query: string): Promise<SearchResult[]> {
   if (!query.trim()) return [];

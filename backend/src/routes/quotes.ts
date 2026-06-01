@@ -5,10 +5,10 @@ import { Quote, OutgoingInvoice } from "../types/index.js";
 
 export async function quotesRoutes(app: FastifyInstance) {
   // GET /api/quotes
-  app.get("/api/quotes", async () => loadQuotes());
+  app.get("/", async () => loadQuotes());
 
   // POST /api/quotes
-  app.post<{ Body: Quote }>("/api/quotes", async (req, reply) => {
+  app.post<{ Body: Quote }>("/", async (req, reply) => {
     const quotes = loadQuotes();
     quotes.push(req.body);
     saveQuotes(quotes);
@@ -16,7 +16,7 @@ export async function quotesRoutes(app: FastifyInstance) {
   });
 
   // PUT /api/quotes/:id
-  app.put<{ Params: { id: string }; Body: Quote }>("/api/quotes/:id", async (req, reply) => {
+  app.put<{ Params: { id: string }; Body: Quote }>("/:id", async (req, reply) => {
     const quotes = loadQuotes();
     const idx = quotes.findIndex((q) => q.id === req.params.id);
     if (idx === -1) return reply.status(404).send({ error: "Not found" });
@@ -26,14 +26,14 @@ export async function quotesRoutes(app: FastifyInstance) {
   });
 
   // DELETE /api/quotes/:id
-  app.delete<{ Params: { id: string } }>("/api/quotes/:id", async (req, reply) => {
+  app.delete<{ Params: { id: string } }>("/:id", async (req, reply) => {
     const quotes = loadQuotes().filter((q) => q.id !== req.params.id);
     saveQuotes(quotes);
     return reply.status(204).send();
   });
 
   // POST /api/quotes/:id/convert — convertit un devis en facture
-  app.post<{ Params: { id: string } }>("/api/quotes/:id/convert", async (req, reply) => {
+  app.post<{ Params: { id: string } }>("/:id/convert", async (req, reply) => {
     const quotes = loadQuotes();
     const idx = quotes.findIndex((q) => q.id === req.params.id);
     if (idx === -1) return reply.status(404).send({ error: "Not found" });
