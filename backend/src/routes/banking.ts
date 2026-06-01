@@ -113,31 +113,41 @@ export async function bankingRoutes(app: FastifyInstance) {
   // ── Dédoublonner les imports Powens ──────────────────────────────────────────
 
   app.post("/api/banking/deduplicate", async (_req, reply) => {
-    const { loadAllTransactions, updateTransaction } = await import("../services/transactionService.js");
+    const { loadAllTransactions, invalidateTransactionCache } = await import("../services/transactionService.js");
+    const { default: yaml } = await import("yaml");
+    const fsMod = await import("fs/promises");
+    const pathMod = await import("path");
+    const { getWorkspaceRoot } = await import("../services/fileSystem.js");
+
     const transactions = await loadAllTransactions();
 
-    // Grouper par date + libellé normalisé + montant
-    const groups = new Map<string, string[]>();
-    for (const t of transactions) {
-      if (t.status === "rejected") continue;
-      const key = `${t.date}|${String(t.label).trim().toLowerCase()}|${t.amount_ttc}`;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(t.id);
-    }
+    // Séparer Powens (imports) et manuels
+    const powens = transactions.filter((t) => t.id.startsWith("bank_powens_") && t.status !== "rejected");
+    const manual = transactions.filter((t) => !t.id.startsWith("bank_powens_") && t.status !== "rejected");
+
+    // Indexer les manuels par date + montant (les libellés peuvent différer)
+    const manualIndex = new Set<string>(manual.map((t) => `${t.date}|${t.amount_ttc}`));
+
+    // Powens à rejeter = ceux qui ont un doublon manuel même date + même montant
+    const toReject = powens.filter((t) => manualIndex.has(`${t.date}|${t.amount_ttc}`));
+
+    // Trouver les fichiers par ID (les fichiers Powens sont nommés date_id.yaml)
+    const txnDir = pathMod.default.join(getWorkspaceRoot(), "transactions");
+    const files = await fsMod.default.readdir(txnDir);
 
     let rejected = 0;
-    for (const ids of groups.values()) {
-      if (ids.length <= 1) continue;
-      const powensIds = ids.filter((id) => id.startsWith("bank_powens_"));
-      const hasManual = ids.some((id) => !id.startsWith("bank_powens_"));
-      if (!hasManual || powensIds.length === 0) continue;
-      for (const id of powensIds) {
-        await updateTransaction(id, { status: "rejected" });
-        rejected++;
-      }
+    for (const txn of toReject) {
+      const file = files.find((f) => f.includes(txn.id) && f.endsWith(".yaml"));
+      if (!file) continue;
+      const filePath = pathMod.default.join(txnDir, file);
+      await fsMod.default.writeFile(filePath, yaml.stringify({ ...txn, status: "rejected" }), "utf-8");
+      rejected++;
     }
+
+    invalidateTransactionCache();
     return reply.send({ rejected });
   });
+
   app.delete("/api/banking/connections/:connectionId", async (req, reply) => {
     const config = await getConfig();
     if (!config) return reply.status(400).send({ error: "Powens non configurÃ©" });
