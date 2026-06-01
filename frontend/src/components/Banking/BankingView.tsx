@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api } from "../../api/client";
 
 interface BankAccount {
@@ -69,7 +69,7 @@ export function BankingView() {
     setSetupMsg(null);
     try {
       await api.post("/banking/config", { domain: domain.trim(), clientId: clientId.trim(), clientSecret: clientSecret.trim() });
-      setSetupMsg({ ok: true, text: "Credentials enregistrÃ©s !" });
+      setSetupMsg({ ok: true, text: "Credentials enregistrés !" });
       setConfig({ configured: true, mode: "self_hosted", domain: domain.trim(), clientId: clientId.trim() });
       setClientSecret("");
       setStep("connections");
@@ -98,7 +98,7 @@ export function BankingView() {
   }
 
   async function handleRefresh() {
-    setConnectMsg("RÃ©cupÃ©ration des connexionsâ€¦");
+    setConnectMsg("Récupération des connexions…");
     try {
       const { data } = await api.post<BankConnection[]>("/banking/refresh");
       setConnections(data);
@@ -116,7 +116,7 @@ export function BankingView() {
       const { data } = await api.post<{ imported: number; skipped: number; errors: string[] }>(
         `/banking/sync-all/${conn.connectionId}`
       );
-      const msg = `${data.imported} transaction(s) importÃ©e(s), ${data.skipped} dÃ©jÃ  prÃ©sente(s)${data.errors.length ? ` â€” ${data.errors.join(", ")}` : ""}`;
+      const msg = `${data.imported} transaction(s) importée(s), ${data.skipped} déjà présente(s)${data.errors.length ? ` — ${data.errors.join(", ")}` : ""}`;
       setSyncStatus((s) => ({ ...s, [conn.connectionId]: { loading: false, msg } }));
       await loadData();
     } catch (err: unknown) {
@@ -126,7 +126,7 @@ export function BankingView() {
   }
 
   async function handleDelete(conn: BankConnection) {
-    if (!confirm(`DÃ©connecter ${conn.connectorName} ? Les transactions dÃ©jÃ  importÃ©es seront conservÃ©es.`)) return;
+    if (!confirm(`Déconnecter ${conn.connectorName} ? Les transactions déjà importées seront conservées.`)) return;
     try {
       await api.delete(`/banking/connections/${conn.connectionId}`);
       await loadData();
@@ -134,7 +134,7 @@ export function BankingView() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center h-full text-vscode-muted text-sm">Chargementâ€¦</div>;
+    return <div className="flex items-center justify-center h-full text-vscode-muted text-sm">Chargement…</div>;
   }
 
   return (
@@ -144,7 +144,7 @@ export function BankingView() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-base font-bold">ðŸ¦ Connexion bancaire PSD2</h1>
+            <h1 className="text-base font-bold">🏦 Connexion bancaire PSD2</h1>
             <p className="text-xs text-vscode-muted mt-0.5">
               Importez automatiquement vos transactions depuis votre banque via Open Banking (Powens).
             </p>
@@ -157,7 +157,7 @@ export function BankingView() {
                   disabled={connectLoading}
                   className="text-xs bg-vscode-accent text-white px-3 py-1.5 rounded hover:opacity-90 disabled:opacity-50"
                 >
-                  {connectLoading ? "Ouvertureâ€¦" : "+ Connecter une banque"}
+                  {connectLoading ? "Ouverture…" : "+ Connecter une banque"}
                 </button>
                 {config.mode === "self_hosted" && (
                   <button
@@ -165,7 +165,7 @@ export function BankingView() {
                     className="text-xs border border-vscode-border text-vscode-muted px-3 py-1.5 rounded hover:text-vscode-text"
                     title="Modifier les credentials Powens"
                   >
-                    âš™ï¸ API
+                    ⚙️ API
                   </button>
                 )}
               </>
@@ -175,38 +175,38 @@ export function BankingView() {
                 onClick={() => { setStep("connections"); setConnectMsg(null); }}
                 className="text-xs border border-vscode-border text-vscode-muted px-3 py-1.5 rounded hover:text-vscode-text"
               >
-                â† Retour
+                ← Retour
               </button>
             )}
           </div>
         </div>
 
-        {/* â”€â”€ Mode hÃ©bergÃ© non activÃ© â”€â”€ */}
+        {/* ── Mode hébergé non activé ── */}
         {!config.configured && config.mode === "hosted" && step === "connections" && (
           <div className="bg-vscode-panel border border-yellow-700/40 rounded-lg p-5 text-center">
-            <p className="text-2xl mb-2">ðŸ”§</p>
-            <p className="text-sm font-bold mb-1">Connexion bancaire non activÃ©e</p>
+            <p className="text-2xl mb-2">🔧</p>
+            <p className="text-sm font-bold mb-1">Connexion bancaire non activée</p>
             <p className="text-xs text-vscode-muted">
-              Le service Open Banking n'est pas encore configurÃ© sur ce serveur.
+              Le service Open Banking n'est pas encore configuré sur ce serveur.
             </p>
           </div>
         )}
 
-        {/* â”€â”€ Formulaire de configuration â”€â”€ */}
+        {/* ── Formulaire de configuration ── */}
         {(step === "setup" || (!config.configured && config.mode !== "hosted")) && (
           <div className="bg-vscode-panel border border-vscode-border rounded-lg p-5">
-            <h2 className="text-sm font-bold mb-1">Configuration Open Banking â€” Powens</h2>
+            <h2 className="text-sm font-bold mb-1">Configuration Open Banking — Powens</h2>
             <p className="text-xs text-vscode-muted mb-1">
-              CrÃ©ez un compte gratuit sur{" "}
+              Créez un compte gratuit sur{" "}
               <a href="https://console.budget-insight.com/auth/register" target="_blank" rel="noopener noreferrer"
                 className="text-vscode-accent hover:underline">
                 console.budget-insight.com
               </a>
-              , crÃ©ez un domaine (ex : <code className="font-mono bg-vscode-bg px-1 rounded">monapp-sandbox</code>)
+              , créez un domaine (ex : <code className="font-mono bg-vscode-bg px-1 rounded">monapp-sandbox</code>)
               et une application cliente, puis renseignez vos credentials ci-dessous.
             </p>
             <p className="text-[10px] text-vscode-muted mb-1">
-              Dans la console Powens, ajoutez Ã©galement l'URL de redirection suivante Ã  votre application cliente :
+              Dans la console Powens, ajoutez également l'URL de redirection suivante à votre application cliente :
             </p>
             <p className="text-[10px] font-mono bg-vscode-bg border border-vscode-border rounded px-2 py-1 mb-4 break-all">
               {window.location.origin}{import.meta.env.BASE_URL}
@@ -241,7 +241,7 @@ export function BankingView() {
                   type="password"
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}
-                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                  placeholder="••••••••••••••••••••••••••••••••"
                   required
                   className="w-full bg-vscode-bg border border-vscode-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-vscode-accent"
                 />
@@ -251,7 +251,7 @@ export function BankingView() {
                 disabled={setupLoading}
                 className="self-start bg-vscode-accent text-white text-xs px-4 py-1.5 rounded hover:opacity-90 disabled:opacity-50"
               >
-                {setupLoading ? "Enregistrementâ€¦" : "Enregistrer"}
+                {setupLoading ? "Enregistrement…" : "Enregistrer"}
               </button>
             </form>
             {setupMsg && (
@@ -262,33 +262,33 @@ export function BankingView() {
           </div>
         )}
 
-        {/* â”€â”€ Attente retour webview â”€â”€ */}
+        {/* ── Attente retour webview ── */}
         {step === "waiting_webview" && (
           <div className="bg-vscode-panel border border-yellow-700/40 rounded-lg p-5 text-center">
-            <p className="text-2xl mb-3">ðŸ”</p>
+            <p className="text-2xl mb-3">🔐</p>
             <h2 className="text-sm font-bold mb-2">Authentification bancaire en cours</h2>
             <p className="text-xs text-vscode-muted mb-4">
-              Une fenÃªtre Powens s'est ouverte. SÃ©lectionnez votre banque et authentifiez-vous.
-              Une fois terminÃ©, revenez ici et cliquez sur le bouton ci-dessous.
+              Une fenêtre Powens s'est ouverte. Sélectionnez votre banque et authentifiez-vous.
+              Une fois terminé, revenez ici et cliquez sur le bouton ci-dessous.
             </p>
             {connectMsg && <p className="text-xs text-vscode-muted mb-3">{connectMsg}</p>}
             <button
               onClick={handleRefresh}
               className="bg-vscode-accent text-white text-xs px-4 py-2 rounded hover:opacity-90"
             >
-              âœ“ J'ai terminÃ© â€” importer mes comptes
+              ✓ J'ai terminé — importer mes comptes
             </button>
           </div>
         )}
 
-        {/* â”€â”€ Liste des connexions â”€â”€ */}
+        {/* ── Liste des connexions ── */}
         {step === "connections" && config.configured && (
           <>
             {connectMsg && <p className="text-xs text-red-400">{connectMsg}</p>}
             {connections.length === 0 ? (
               <div className="text-center py-12 text-vscode-muted">
-                <p className="text-3xl mb-3">ðŸ¦</p>
-                <p className="text-sm">Aucune banque connectÃ©e</p>
+                <p className="text-3xl mb-3">🏦</p>
+                <p className="text-sm">Aucune banque connectée</p>
                 <p className="text-xs mt-1">Cliquez sur "Connecter une banque" pour commencer.</p>
               </div>
             ) : (
@@ -303,15 +303,15 @@ export function BankingView() {
                         <img src={conn.connectorLogo} alt={conn.connectorName}
                           className="w-8 h-8 object-contain rounded" />
                       ) : (
-                        <span className="text-xl">ðŸ¦</span>
+                        <span className="text-xl">🏦</span>
                       )}
                       <div>
                         <p className="text-sm font-bold">{conn.connectorName}</p>
                         <p className="text-[10px] text-vscode-muted">
-                          ConnectÃ© le {new Date(conn.createdAt).toLocaleDateString("fr-FR")}
-                          {" Â· "}
+                          Connecté le {new Date(conn.createdAt).toLocaleDateString("fr-FR")}
+                          {" · "}
                           <span className={!conn.status || conn.status === "active" ? "text-green-400" : "text-yellow-400"}>
-                            {!conn.status || conn.status === "active" ? "âœ“ Actif" : conn.status}
+                            {!conn.status || conn.status === "active" ? "✓ Actif" : conn.status}
                           </span>
                         </p>
                       </div>
@@ -322,13 +322,13 @@ export function BankingView() {
                         disabled={syncStatus[conn.connectionId]?.loading}
                         className="text-xs bg-vscode-accent text-white px-3 py-1 rounded hover:opacity-90 disabled:opacity-50"
                       >
-                        {syncStatus[conn.connectionId]?.loading ? "Syncâ€¦" : "ðŸ”„ Synchroniser"}
+                        {syncStatus[conn.connectionId]?.loading ? "Sync…" : "🔄 Synchroniser"}
                       </button>
                       <button
                         onClick={() => handleDelete(conn)}
                         className="text-xs border border-red-800/50 text-red-400 px-3 py-1 rounded hover:bg-red-900/20"
                       >
-                        DÃ©connecter
+                        Déconnecter
                       </button>
                     </div>
                   </div>
@@ -361,7 +361,7 @@ export function BankingView() {
                           {acc.lastSyncAt && (
                             <span title={new Date(acc.lastSyncAt).toLocaleString("fr-FR")}>
                               Synchro {new Date(acc.lastSyncAt).toLocaleDateString("fr-FR")}
-                              {acc.importedCount ? ` Â· ${acc.importedCount} tx` : ""}
+                              {acc.importedCount ? ` · ${acc.importedCount} tx` : ""}
                             </span>
                           )}
                         </div>
@@ -377,7 +377,7 @@ export function BankingView() {
         {/* Note */}
         <p className="text-[10px] text-vscode-muted text-center mt-2">
           Connexion via Open Banking (PSD2). Vos identifiants bancaires
-          ne transitent jamais par ComptaOS â€” l'authentification se fait directement sur le site de votre banque.
+          ne transitent jamais par ComptaOS — l'authentification se fait directement sur le site de votre banque.
         </p>
       </div>
     </div>

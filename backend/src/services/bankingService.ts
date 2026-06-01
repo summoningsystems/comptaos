@@ -1,14 +1,14 @@
-﻿/**
+/**
  * Service d'Open Banking via Powens (ex Budget Insight)
  * Doc : https://docs.powens.com
  *
  * Flux :
- *  1. POST /auth/init â†’ userToken permanent (une seule fois, stockÃ© dans config)
- *  2. GET  /auth/token/code â†’ code temporaire
+ *  1. POST /auth/init → userToken permanent (une seule fois, stocké dans config)
+ *  2. GET  /auth/token/code → code temporaire
  *  3. Ouvrir webview.powens.com/connect?domain=...&client_id=...&code=...&redirect_uri=...
- *  4. Powens redirige vers redirectUri?connection_id={id} aprÃ¨s auth bancaire
- *  5. POST /api/banking/refresh â†’ refreshConnections() â†’ liste des connexions + comptes
- *  6. GET  /users/me/accounts/{id}/transactions â†’ import transactions
+ *  4. Powens redirige vers redirectUri?connection_id={id} après auth bancaire
+ *  5. POST /api/banking/refresh → refreshConnections() → liste des connexions + comptes
+ *  6. GET  /users/me/accounts/{id}/transactions → import transactions
  */
 
 import fs from "fs/promises";
@@ -18,7 +18,7 @@ import { getCompaniesRoot } from "./companiesService.js";
 
 const POWENS_BASE = (domain: string) => `https://${domain}.biapi.pro/2.0`;
 
-// â”€â”€ Types Powens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Types Powens ──────────────────────────────────────────────────────────────
 
 interface PowensConnection {
   id: number;
@@ -57,7 +57,7 @@ interface PowensTransaction {
   original_wording?: string;
 }
 
-// â”€â”€ Types publics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Types publics ─────────────────────────────────────────────────────────────
 
 export interface BankingConfig {
   domain: string;
@@ -85,7 +85,7 @@ export interface BankAccount {
   importedCount?: number;
 }
 
-// â”€â”€ Stockage local â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Stockage local ────────────────────────────────────────────────────────────
 
 function bankingDir(): string {
   return path.join(getWorkspaceRoot(), "banking");
@@ -104,7 +104,7 @@ async function ensureBankingDir(): Promise<void> {
 }
 
 export async function getConfig(): Promise<BankingConfig | null> {
-  // PrioritÃ© 1 : variables d'environnement (mode hÃ©bergÃ©)
+  // Priorité 1 : variables d'environnement (mode hébergé)
   const envDomain = process.env.POWENS_DOMAIN?.trim();
   const envClientId = process.env.POWENS_CLIENT_ID?.trim();
   const envClientSecret = process.env.POWENS_CLIENT_SECRET?.trim();
@@ -112,7 +112,7 @@ export async function getConfig(): Promise<BankingConfig | null> {
   if (envDomain && envClientId && envClientSecret) {
     return { domain: envDomain, clientId: envClientId, clientSecret: envClientSecret, userToken: envUserToken };
   }
-  // PrioritÃ© 2 : fichier local (mode auto-hÃ©bergÃ©)
+  // Priorité 2 : fichier local (mode auto-hébergé)
   try {
     const raw = await fs.readFile(configFile(), "utf-8");
     return JSON.parse(raw) as BankingConfig;
@@ -148,7 +148,7 @@ async function saveConnections(connections: BankConnection[]): Promise<void> {
   await fs.writeFile(connectionsFile(), JSON.stringify(connections, null, 2));
 }
 
-// â”€â”€ HTTP helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── HTTP helper ───────────────────────────────────────────────────────────────
 
 async function powensFetch<T>(
   domain: string,
@@ -171,9 +171,9 @@ async function powensFetch<T>(
   return res.json() as Promise<T>;
 }
 
-// â”€â”€ Gestion du userToken â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Gestion du userToken ──────────────────────────────────────────────────────
 
-/** CrÃ©e un nouvel utilisateur Powens et retourne son token permanent */
+/** Crée un nouvel utilisateur Powens et retourne son token permanent */
 async function initUser(config: BankingConfig): Promise<string> {
   const res = await fetch(`${POWENS_BASE(config.domain)}/auth/init`, {
     method: "POST",
@@ -182,13 +182,13 @@ async function initUser(config: BankingConfig): Promise<string> {
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Powens auth/init Ã©chouÃ©: ${err}`);
+    throw new Error(`Powens auth/init échoué: ${err}`);
   }
   const data = await res.json() as { auth_token: string };
   return data.auth_token;
 }
 
-/** Retourne le userToken existant ou en crÃ©e un, et persiste la config si nÃ©cessaire */
+/** Retourne le userToken existant ou en crée un, et persiste la config si nécessaire */
 async function ensureUserToken(config: BankingConfig): Promise<{ token: string; config: BankingConfig }> {
   if (config.userToken) {
     return { token: config.userToken, config };
@@ -201,13 +201,13 @@ async function ensureUserToken(config: BankingConfig): Promise<{ token: string; 
   return { token, config: updated };
 }
 
-/** GÃ©nÃ¨re un code temporaire pour le webview (Ã  usage unique) */
+/** Génère un code temporaire pour le webview (à usage unique) */
 async function getTempCode(domain: string, userToken: string): Promise<string> {
   const data = await powensFetch<{ code: string }>(domain, "/auth/token/code", userToken);
   return data.code;
 }
 
-// â”€â”€ API publique â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── API publique ──────────────────────────────────────────────────────────────
 
 /** Retourne l'URL du webview Powens pour connecter une nouvelle banque */
 export async function getConnectWebviewUrl(
@@ -225,7 +225,7 @@ export async function getConnectWebviewUrl(
   return { url };
 }
 
-/** RafraÃ®chit les connexions depuis l'API Powens et met Ã  jour le stockage local */
+/** Rafraîchit les connexions depuis l'API Powens et met à jour le stockage local */
 export async function refreshConnections(config: BankingConfig): Promise<BankConnection[]> {
   const { token } = await ensureUserToken(config);
 
@@ -271,13 +271,13 @@ export async function refreshConnections(config: BankingConfig): Promise<BankCon
   return connections;
 }
 
-/** Supprime une connexion cÃ´tÃ© Powens et en local */
+/** Supprime une connexion côté Powens et en local */
 export async function deleteConnection(connectionId: number, config: BankingConfig): Promise<void> {
   const { token } = await ensureUserToken(config);
   try {
     await powensFetch(config.domain, `/users/me/connections/${connectionId}`, token, { method: "DELETE" });
   } catch {
-    // Ignorer si dÃ©jÃ  supprimÃ© cÃ´tÃ© Powens
+    // Ignorer si déjà supprimé côté Powens
   }
   const connections = await getConnections();
   await saveConnections(connections.filter((c) => c.connectionId !== connectionId));
@@ -325,7 +325,7 @@ export async function syncAccountTransactions(
       category: "misc",
       account: String(accountId),
       status: "pending",
-      notes: `Importé via PSD2 (Powens) — ${label}`,
+      notes: `Import� via PSD2 (Powens) � ${label}`,
       tags: ["bank_import"],
     };
 
@@ -334,7 +334,7 @@ export async function syncAccountTransactions(
     imported++;
   }
 
-  // Mettre à jour lastSyncAt dans les connexions locales
+  // Mettre � jour lastSyncAt dans les connexions locales
   const connections = await getConnections();
   for (const conn of connections) {
     const acc = conn.accounts.find((a) => a.id === accountId);
