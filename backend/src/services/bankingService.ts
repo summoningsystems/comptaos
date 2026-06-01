@@ -1,14 +1,14 @@
-/**
- * Service d'Open Banking via GoCardless (anciennement Nordigen)
- * Doc : https://bankaccountdata.gocardless.com/api/v2/
+﻿/**
+ * Service d'Open Banking via Powens (ex Budget Insight)
+ * Doc : https://docs.powens.com
  *
- * Flux OAuth :
- *  1. getInstitutions(country) → liste des banques
- *  2. createRequisition(institutionId, redirectUrl) → { id, link }
- *  3. Utilisateur clique `link`, s'authentifie chez sa banque
- *  4. La banque redirige vers redirectUrl?ref={requisitionId}
- *  5. getRequisitionAccounts(requisitionId) → liste des account_id
- *  6. syncAccount(accountId) → transactions importées dans workspace
+ * Flux :
+ *  1. POST /auth/init â†’ userToken permanent (une seule fois, stockÃ© dans config)
+ *  2. GET  /auth/token/code â†’ code temporaire
+ *  3. Ouvrir webview.powens.com/connect?domain=...&client_id=...&code=...&redirect_uri=...
+ *  4. Powens redirige vers redirectUri?connection_id={id} aprÃ¨s auth bancaire
+ *  5. POST /api/banking/refresh â†’ refreshConnections() â†’ liste des connexions + comptes
+ *  6. GET  /users/me/accounts/{id}/transactions â†’ import transactions
  */
 
 import fs from "fs/promises";
@@ -16,64 +16,67 @@ import path from "path";
 import { getWorkspaceRoot } from "./fileSystem.js";
 import { getCompaniesRoot } from "./companiesService.js";
 
-const GC_BASE = "https://bankaccountdata.gocardless.com/api/v2";
+const POWENS_BASE = (domain: string) => `https://${domain}.biapi.pro/2.0`;
 
-// ── Types GoCardless ──────────────────────────────────────────────────────────
+// â”€â”€ Types Powens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-interface GCToken {
-  access: string;
-  access_expires: number;
-  refresh: string;
-  refresh_expires: number;
+interface PowensConnection {
+  id: number;
+  state: string | null;
+  last_update: string;
+  connector_id: number;
+  connector?: {
+    id: number;
+    name: string;
+    logo_url?: string;
+    logo?: string;
+  };
 }
 
-interface GCInstitution {
-  id: string;
+interface PowensAccount {
+  id: number;
   name: string;
-  bic: string;
-  transaction_total_days: string;
-  countries: string[];
-  logo: string;
+  number?: string;
+  iban?: string;
+  type: string;
+  balance: number;
+  connection_id: number;
+  currency?: { id: string };
+  deleted?: string | null;
+  disabled?: boolean;
 }
 
-interface GCRequisition {
-  id: string;
-  status: string;
-  link: string;
-  accounts: string[];
-  institution_id: string;
-  reference: string;
+interface PowensTransaction {
+  id: number;
+  wording: string;
+  date: string;
+  rdate?: string;
+  value: number;
+  type: string;
+  account_id: number;
+  original_wording?: string;
 }
 
-interface GCTransaction {
-  transactionId?: string;
-  bookingDate?: string;
-  valueDate?: string;
-  transactionAmount: { amount: string; currency: string };
-  remittanceInformationUnstructured?: string;
-  creditorName?: string;
-  debtorName?: string;
-}
-
-// ── Stockage local ─────────────────────────────────────────────────────────────
+// â”€â”€ Types publics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export interface BankingConfig {
-  secretId: string;
-  secretKey: string;
+  domain: string;
+  clientId: string;
+  clientSecret: string;
+  userToken?: string;
 }
 
 export interface BankConnection {
-  requisitionId: string;
-  institutionId: string;
-  institutionName: string;
-  institutionLogo: string;
+  connectionId: number;
+  connectorName: string;
+  connectorLogo?: string;
   accounts: BankAccount[];
   createdAt: string;
   status: string;
 }
 
 export interface BankAccount {
-  id: string;
+  id: number;
   iban?: string;
   name?: string;
   currency?: string;
@@ -81,6 +84,8 @@ export interface BankAccount {
   lastSyncAt?: string;
   importedCount?: number;
 }
+
+// â”€â”€ Stockage local â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function bankingDir(): string {
   return path.join(getWorkspaceRoot(), "banking");
@@ -99,13 +104,15 @@ async function ensureBankingDir(): Promise<void> {
 }
 
 export async function getConfig(): Promise<BankingConfig | null> {
-  // Priorité 1 : variables d'environnement (mode hébergé — credentials de l'opérateur)
-  const envId = process.env.GOCARDLESS_SECRET_ID?.trim();
-  const envKey = process.env.GOCARDLESS_SECRET_KEY?.trim();
-  if (envId && envKey) {
-    return { secretId: envId, secretKey: envKey };
+  // PrioritÃ© 1 : variables d'environnement (mode hÃ©bergÃ©)
+  const envDomain = process.env.POWENS_DOMAIN?.trim();
+  const envClientId = process.env.POWENS_CLIENT_ID?.trim();
+  const envClientSecret = process.env.POWENS_CLIENT_SECRET?.trim();
+  const envUserToken = process.env.POWENS_USER_TOKEN?.trim();
+  if (envDomain && envClientId && envClientSecret) {
+    return { domain: envDomain, clientId: envClientId, clientSecret: envClientSecret, userToken: envUserToken };
   }
-  // Priorité 2 : fichier local (mode auto-hébergé — credentials de l'utilisateur)
+  // PrioritÃ© 2 : fichier local (mode auto-hÃ©bergÃ©)
   try {
     const raw = await fs.readFile(configFile(), "utf-8");
     return JSON.parse(raw) as BankingConfig;
@@ -114,9 +121,12 @@ export async function getConfig(): Promise<BankingConfig | null> {
   }
 }
 
-/** Indique si les credentials viennent des variables d'environnement (mode hébergé) */
 export function isConfiguredViaEnv(): boolean {
-  return !!(process.env.GOCARDLESS_SECRET_ID?.trim() && process.env.GOCARDLESS_SECRET_KEY?.trim());
+  return !!(
+    process.env.POWENS_DOMAIN?.trim() &&
+    process.env.POWENS_CLIENT_ID?.trim() &&
+    process.env.POWENS_CLIENT_SECRET?.trim()
+  );
 }
 
 export async function saveConfig(config: BankingConfig): Promise<void> {
@@ -138,35 +148,15 @@ async function saveConnections(connections: BankConnection[]): Promise<void> {
   await fs.writeFile(connectionsFile(), JSON.stringify(connections, null, 2));
 }
 
-// ── Cache token en mémoire ────────────────────────────────────────────────────
+// â”€â”€ HTTP helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-let _tokenCache: { token: GCToken; fetchedAt: number } | null = null;
-
-async function getAccessToken(config: BankingConfig): Promise<string> {
-  const now = Date.now();
-  if (_tokenCache && now < _tokenCache.fetchedAt + (_tokenCache.token.access_expires - 60) * 1000) {
-    return _tokenCache.token.access;
-  }
-
-  const res = await fetch(`${GC_BASE}/token/new/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ secret_id: config.secretId, secret_key: config.secretKey }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`GoCardless auth failed: ${err}`);
-  }
-
-  const token = await res.json() as GCToken;
-  _tokenCache = { token, fetchedAt: now };
-  return token.access;
-}
-
-async function gcFetch<T>(path: string, config: BankingConfig, options?: RequestInit): Promise<T> {
-  const token = await getAccessToken(config);
-  const res = await fetch(`${GC_BASE}${path}`, {
+async function powensFetch<T>(
+  domain: string,
+  endpoint: string,
+  token: string,
+  options?: RequestInit
+): Promise<T> {
+  const res = await fetch(`${POWENS_BASE(domain)}${endpoint}`, {
     ...options,
     headers: {
       "Authorization": `Bearer ${token}`,
@@ -176,130 +166,136 @@ async function gcFetch<T>(path: string, config: BankingConfig, options?: Request
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`GoCardless error ${res.status}: ${err}`);
+    throw new Error(`Powens ${res.status}: ${err}`);
   }
   return res.json() as Promise<T>;
 }
 
-// ── API publique ───────────────────────────────────────────────────────────────
+// â”€â”€ Gestion du userToken â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/** Liste les banques disponibles pour un pays (code ISO, ex: "FR") */
-export async function getInstitutions(country: string, config: BankingConfig): Promise<GCInstitution[]> {
-  return gcFetch<GCInstitution[]>(`/institutions/?country=${country.toUpperCase()}`, config);
+/** CrÃ©e un nouvel utilisateur Powens et retourne son token permanent */
+async function initUser(config: BankingConfig): Promise<string> {
+  const res = await fetch(`${POWENS_BASE(config.domain)}/auth/init`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: config.clientId, client_secret: config.clientSecret }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Powens auth/init Ã©chouÃ©: ${err}`);
+  }
+  const data = await res.json() as { auth_token: string };
+  return data.auth_token;
 }
 
-/** Crée une connexion OAuth → renvoie l'URL de redirection vers la banque */
-export async function createRequisition(
-  institutionId: string,
-  redirectUrl: string,
-  config: BankingConfig
-): Promise<{ requisitionId: string; link: string }> {
-  // Accord d'accès sur 90 jours d'historique
-  const agreement = await gcFetch<{ id: string }>("/agreements/enduser/", config, {
-    method: "POST",
-    body: JSON.stringify({
-      institution_id: institutionId,
-      max_historical_days: 90,
-      access_valid_for_days: 30,
-      access_scope: ["balances", "details", "transactions"],
-    }),
-  });
-
-  const req = await gcFetch<GCRequisition>("/requisitions/", config, {
-    method: "POST",
-    body: JSON.stringify({
-      redirect: redirectUrl,
-      institution_id: institutionId,
-      agreement: agreement.id,
-      reference: `comptaos_${Date.now()}`,
-      user_language: "FR",
-    }),
-  });
-
-  return { requisitionId: req.id, link: req.link };
+/** Retourne le userToken existant ou en crÃ©e un, et persiste la config si nÃ©cessaire */
+async function ensureUserToken(config: BankingConfig): Promise<{ token: string; config: BankingConfig }> {
+  if (config.userToken) {
+    return { token: config.userToken, config };
+  }
+  const token = await initUser(config);
+  const updated = { ...config, userToken: token };
+  if (!isConfiguredViaEnv()) {
+    await saveConfig(updated);
+  }
+  return { token, config: updated };
 }
 
-/** Finalise la connexion après le retour OAuth : récupère les comptes */
-export async function finalizeConnection(
-  requisitionId: string,
-  institution: { id: string; name: string; logo: string },
+/** GÃ©nÃ¨re un code temporaire pour le webview (Ã  usage unique) */
+async function getTempCode(domain: string, userToken: string): Promise<string> {
+  const data = await powensFetch<{ code: string }>(domain, "/auth/token/code", userToken);
+  return data.code;
+}
+
+// â”€â”€ API publique â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/** Retourne l'URL du webview Powens pour connecter une nouvelle banque */
+export async function getConnectWebviewUrl(
+  redirectUri: string,
   config: BankingConfig
-): Promise<BankConnection> {
-  const req = await gcFetch<GCRequisition>(`/requisitions/${requisitionId}/`, config);
+): Promise<{ url: string }> {
+  const { token, config: updated } = await ensureUserToken(config);
+  const code = await getTempCode(updated.domain, token);
+  const url =
+    `https://webview.powens.com/connect` +
+    `?domain=${updated.domain}` +
+    `&client_id=${updated.clientId}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&code=${code}`;
+  return { url };
+}
 
-  // Récupérer les détails de chaque compte
-  const accounts: BankAccount[] = await Promise.all(
-    req.accounts.map(async (accountId) => {
-      try {
-        const [details, balances] = await Promise.all([
-          gcFetch<{ account: { iban?: string; name?: string; currency?: string } }>(
-            `/accounts/${accountId}/details/`, config
-          ),
-          gcFetch<{ balances: { balanceAmount: { amount: string }; balanceType: string }[] }>(
-            `/accounts/${accountId}/balances/`, config
-          ),
-        ]);
+/** RafraÃ®chit les connexions depuis l'API Powens et met Ã  jour le stockage local */
+export async function refreshConnections(config: BankingConfig): Promise<BankConnection[]> {
+  const { token } = await ensureUserToken(config);
 
-        const closingBalance = balances.balances.find(
-          (b) => b.balanceType === "closingBooked" || b.balanceType === "interimAvailable"
-        );
+  const [connData, accData] = await Promise.all([
+    powensFetch<{ connections: PowensConnection[] }>(
+      config.domain, "/users/me/connections?expand=connector", token
+    ),
+    powensFetch<{ accounts: PowensAccount[] }>(
+      config.domain, "/users/me/accounts", token
+    ),
+  ]);
 
+  const existing = await getConnections();
+
+  const connections: BankConnection[] = connData.connections.map((conn) => {
+    const existingConn = existing.find((c) => c.connectionId === conn.id);
+    const accounts: BankAccount[] = accData.accounts
+      .filter((a) => a.connection_id === conn.id && !a.deleted && !a.disabled)
+      .map((a) => {
+        const existingAcc = existingConn?.accounts.find((ea) => ea.id === a.id);
         return {
-          id: accountId,
-          iban: details.account.iban,
-          name: details.account.name ?? details.account.iban ?? accountId,
-          currency: details.account.currency ?? "EUR",
-          balance: closingBalance ? parseFloat(closingBalance.balanceAmount.amount) : undefined,
-        } as BankAccount;
-      } catch {
-        return { id: accountId } as BankAccount;
-      }
-    })
-  );
+          id: a.id,
+          iban: a.iban,
+          name: a.name,
+          currency: a.currency?.id ?? "EUR",
+          balance: a.balance,
+          lastSyncAt: existingAcc?.lastSyncAt,
+          importedCount: existingAcc?.importedCount,
+        };
+      });
 
-  const connection: BankConnection = {
-    requisitionId,
-    institutionId: institution.id,
-    institutionName: institution.name,
-    institutionLogo: institution.logo,
-    accounts,
-    createdAt: new Date().toISOString(),
-    status: req.status,
-  };
-
-  const connections = await getConnections();
-  // Remplacer si déjà existant, sinon ajouter
-  const idx = connections.findIndex((c) => c.requisitionId === requisitionId);
-  if (idx >= 0) connections[idx] = connection;
-  else connections.push(connection);
+    return {
+      connectionId: conn.id,
+      connectorName: conn.connector?.name ?? `Connexion ${conn.id}`,
+      connectorLogo: conn.connector?.logo_url ?? conn.connector?.logo,
+      accounts,
+      createdAt: existingConn?.createdAt ?? conn.last_update ?? new Date().toISOString(),
+      status: conn.state ?? "active",
+    };
+  });
 
   await saveConnections(connections);
-  return connection;
+  return connections;
 }
 
-/** Supprime une connexion */
-export async function deleteConnection(requisitionId: string, config: BankingConfig): Promise<void> {
-  // Supprimer côté GoCardless
+/** Supprime une connexion cÃ´tÃ© Powens et en local */
+export async function deleteConnection(connectionId: number, config: BankingConfig): Promise<void> {
+  const { token } = await ensureUserToken(config);
   try {
-    await gcFetch(`/requisitions/${requisitionId}/`, config, { method: "DELETE" });
+    await powensFetch(config.domain, `/users/me/connections/${connectionId}`, token, { method: "DELETE" });
   } catch {
-    // Ignorer si déjà supprimé
+    // Ignorer si dÃ©jÃ  supprimÃ© cÃ´tÃ© Powens
   }
   const connections = await getConnections();
-  await saveConnections(connections.filter((c) => c.requisitionId !== requisitionId));
+  await saveConnections(connections.filter((c) => c.connectionId !== connectionId));
 }
 
 /** Synchronise les transactions d'un compte et les importe dans le workspace */
 export async function syncAccountTransactions(
-  accountId: string,
+  accountId: number,
   config: BankingConfig
 ): Promise<{ imported: number; skipped: number }> {
   const { default: yaml } = await import("yaml");
   const txnModule = await import("./transactionService.js");
+  const { token } = await ensureUserToken(config);
 
-  const data = await gcFetch<{ transactions: { booked: GCTransaction[]; pending?: GCTransaction[] } }>(
-    `/accounts/${accountId}/transactions/`,
-    config
+  const data = await powensFetch<{ transactions: PowensTransaction[] }>(
+    config.domain,
+    `/users/me/accounts/${accountId}/transactions?limit=500`,
+    token
   );
 
   const existing = await txnModule.loadAllTransactions();
@@ -311,43 +307,34 @@ export async function syncAccountTransactions(
   const txnDir = path.join(getWorkspaceRoot(), "transactions");
   await fs.mkdir(txnDir, { recursive: true });
 
-  for (const raw of data.transactions.booked) {
-    const gcId = raw.transactionId ?? `gc_${accountId}_${raw.bookingDate}_${raw.transactionAmount.amount}`;
-    const id = `bank_${gcId}`.replace(/[^a-zA-Z0-9_-]/g, "_");
-
+  for (const raw of data.transactions) {
+    const id = `bank_powens_${raw.id}`;
     if (existingIds.has(id)) { skipped++; continue; }
 
-    const amount = parseFloat(raw.transactionAmount.amount);
-    const label =
-      raw.remittanceInformationUnstructured ??
-      raw.creditorName ??
-      raw.debtorName ??
-      "Virement bancaire";
+    const amount = raw.value;
+    const label = raw.wording || raw.original_wording || "Virement bancaire";
 
     const transaction = {
       id,
-      date: raw.bookingDate ?? raw.valueDate ?? new Date().toISOString().slice(0, 10),
+      date: raw.date,
       label,
       amount_ht: amount,
       vat: 0,
       amount_ttc: amount,
-      currency: raw.transactionAmount.currency,
+      currency: "EUR",
       category: "misc",
-      account: accountId,
+      account: String(accountId),
       status: "pending",
-      notes: `Importé via PSD2 (GoCardless) — ${label}`,
+      notes: `Importé via PSD2 (Powens) — ${label}`,
       tags: ["bank_import"],
     };
 
     const filename = `${transaction.date}_${id}.yaml`;
-    await fs.writeFile(
-      path.join(txnDir, filename),
-      yaml.stringify(transaction)
-    );
+    await fs.writeFile(path.join(txnDir, filename), yaml.stringify(transaction));
     imported++;
   }
 
-  // Mettre à jour lastSyncAt dans les connexions
+  // Mettre à jour lastSyncAt dans les connexions locales
   const connections = await getConnections();
   for (const conn of connections) {
     const acc = conn.accounts.find((a) => a.id === accountId);
@@ -357,9 +344,8 @@ export async function syncAccountTransactions(
     }
   }
   await saveConnections(connections);
-
-  // Invalider le cache transactions
   txnModule.invalidateTransactionCache();
 
   return { imported, skipped };
 }
+
