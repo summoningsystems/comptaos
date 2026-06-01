@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { Tab } from "../../types";
 
@@ -23,7 +24,10 @@ const TAB_ICONS: Record<string, string> = {
 };
 
 export function TabBar() {
-  const { tabs, activeTabId, setActiveTab, closeTab } = useAppStore();
+  const { tabs, activeTabId, setActiveTab, closeTab, reorderTabs } = useAppStore();
+  const dragIdRef = useRef<string | null>(null);
+  const dragCountersRef = useRef<Record<string, number>>({});
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   function popOut(tab: Tab) {
     const url = `${window.location.origin}${window.location.pathname}?view=${tab.type}`;
@@ -35,13 +39,58 @@ export function TabBar() {
       {tabs.map((tab: Tab) => (
         <div
           key={tab.id}
+          draggable
           onClick={() => setActiveTab(tab.id)}
+          onMouseDown={(e) => {
+            if (e.button === 1) {
+              e.preventDefault();
+              e.stopPropagation();
+              closeTab(tab.id);
+            }
+          }}
+          onDragStart={(e) => {
+            dragIdRef.current = tab.id;
+            dragCountersRef.current = {};
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (dragIdRef.current !== tab.id) setDragOverId(tab.id);
+          }}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            dragCountersRef.current[tab.id] = (dragCountersRef.current[tab.id] ?? 0) + 1;
+            if (dragIdRef.current !== tab.id) setDragOverId(tab.id);
+          }}
+          onDragLeave={() => {
+            dragCountersRef.current[tab.id] = (dragCountersRef.current[tab.id] ?? 1) - 1;
+            if (dragCountersRef.current[tab.id] <= 0) {
+              dragCountersRef.current[tab.id] = 0;
+              setDragOverId((prev) => (prev === tab.id ? null : prev));
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (dragIdRef.current && dragIdRef.current !== tab.id) {
+              reorderTabs(dragIdRef.current, tab.id);
+            }
+            dragIdRef.current = null;
+            dragCountersRef.current = {};
+            setDragOverId(null);
+          }}
+          onDragEnd={() => {
+            dragIdRef.current = null;
+            dragCountersRef.current = {};
+            setDragOverId(null);
+          }}
           className={`
             group flex items-center gap-1.5 px-3 h-full text-xs border-r border-vscode-border cursor-pointer select-none whitespace-nowrap min-w-0 max-w-[200px]
             ${activeTabId === tab.id
               ? "bg-vscode-bg text-vscode-text border-t border-t-vscode-accent"
               : "bg-vscode-panel text-vscode-muted hover:text-vscode-text"
             }
+            ${dragOverId === tab.id ? "border-l-2 border-l-vscode-accent" : ""}
           `}
         >
           <span className="shrink-0 text-[10px]">{TAB_ICONS[tab.type] ?? "📄"}</span>

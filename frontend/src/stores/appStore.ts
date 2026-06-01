@@ -9,6 +9,7 @@ interface AppState {
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   markDirty: (id: string, dirty: boolean) => void;
+  reorderTabs: (fromId: string, toId: string) => void;
 
   // File tree
   fileTree: FileNode[];
@@ -41,6 +42,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),
+
+  reorderTabs: (fromId, toId) => {
+    const tabs = get().tabs;
+    const from = tabs.findIndex((t) => t.id === fromId);
+    const to = tabs.findIndex((t) => t.id === toId);
+    if (from === -1 || to === -1 || from === to) return;
+    const next = [...tabs];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    set({ tabs: next });
+  },
 
   markDirty: (id, dirty) => {
     set((s) => ({
