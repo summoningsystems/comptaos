@@ -125,6 +125,15 @@ export function BankingView() {
     }
   }
 
+  async function handleDeduplicate() {
+    if (!confirm("Rejeter automatiquement les imports Powens qui existent déjà comme transactions manuelles ?")) return;
+    try {
+      const { data } = await api.post<{ rejected: number }>("/banking/deduplicate");
+      alert(`${data.rejected} doublon(s) rejeté(s).`);
+      await loadData();
+    } catch {/* silent */}
+  }
+
   async function handleDelete(conn: BankConnection) {
     if (!confirm(`Déconnecter ${conn.connectorName} ? Les transactions déjà importées seront conservées.`)) return;
     try {
@@ -152,6 +161,13 @@ export function BankingView() {
           <div className="flex gap-2">
             {config.configured && step === "connections" && (
               <>
+                <button
+                  onClick={handleDeduplicate}
+                  className="text-xs border border-orange-700 text-orange-400 px-3 py-1.5 rounded hover:bg-orange-900/20"
+                  title="Rejeter les imports Powens en doublon avec des transactions existantes"
+                >
+                  🔁 Dédoublonner
+                </button>
                 <button
                   onClick={handleRefresh}
                   className="text-xs border border-vscode-border text-vscode-muted px-3 py-1.5 rounded hover:text-vscode-text"

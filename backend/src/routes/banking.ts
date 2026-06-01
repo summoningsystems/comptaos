@@ -1,4 +1,4 @@
-﻿import { FastifyInstance } from "fastify";
+import { FastifyInstance } from "fastify";
 import {
   getConfig,
   saveConfig,
@@ -109,6 +109,35 @@ export async function bankingRoutes(app: FastifyInstance) {
 
   // â”€â”€ Supprimer une connexion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+
+  // ── Dédoublonner les imports Powens ──────────────────────────────────────────
+
+  app.post("/api/banking/deduplicate", async (_req, reply) => {
+    const { loadAllTransactions, updateTransaction } = await import("../services/transactionService.js");
+    const transactions = await loadAllTransactions();
+
+    // Grouper par date + libellé normalisé + montant
+    const groups = new Map<string, string[]>();
+    for (const t of transactions) {
+      if (t.status === "rejected") continue;
+      const key = ${t.date}||;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(t.id);
+    }
+
+    let rejected = 0;
+    for (const ids of groups.values()) {
+      if (ids.length <= 1) continue;
+      const powensIds = ids.filter((id) => id.startsWith("bank_powens_"));
+      const hasManual = ids.some((id) => !id.startsWith("bank_powens_"));
+      if (!hasManual || powensIds.length === 0) continue;
+      for (const id of powensIds) {
+        await updateTransaction(id, { status: "rejected" });
+        rejected++;
+      }
+    }
+    return reply.send({ rejected });
+  });
   app.delete("/api/banking/connections/:connectionId", async (req, reply) => {
     const config = await getConfig();
     if (!config) return reply.status(400).send({ error: "Powens non configurÃ©" });
