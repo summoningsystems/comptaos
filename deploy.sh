@@ -10,7 +10,7 @@ git pull origin master
 echo "=== [2/5] build frontend ==="
 cd "$REPO/frontend"
 npm install --prefer-offline --silent
-BASE_PATH=/comptaos/ npm run build
+NODE_OPTIONS=--experimental-global-webcrypto BASE_PATH=/comptaos/ npm run build
 
 echo "=== [3/5] deploy frontend ==="
 docker cp "$REPO/frontend/dist/." tipforgood_frontend_1:"$NGINX_HTML/"
