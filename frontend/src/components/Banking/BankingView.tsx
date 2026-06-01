@@ -84,7 +84,7 @@ export function BankingView() {
   async function handleConnect() {
     setConnectMsg(null);
     setConnectLoading(true);
-    const redirectUrl = `${window.location.origin}${import.meta.env.BASE_URL}?banking_done=1`;
+    const redirectUrl = `${window.location.origin}${import.meta.env.BASE_URL}`;
     try {
       const { data } = await api.post<{ url: string }>("/banking/connect", { redirectUrl });
       setStep("waiting_webview");
