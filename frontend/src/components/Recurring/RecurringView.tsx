@@ -233,7 +233,7 @@ export function RecurringView() {
   }, [monthlyPatterns, manualPatterns]);
 
   const currentBalance = useMemo(
-    () => transactions.reduce((s, t) => s + t.amount_ttc, 0),
+    () => transactions.filter((t) => t.status !== "rejected").reduce((s, t) => s + t.amount_ttc, 0),
     [transactions]
   );
 
