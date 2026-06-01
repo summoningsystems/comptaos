@@ -120,7 +120,7 @@ export async function bankingRoutes(app: FastifyInstance) {
     const groups = new Map<string, string[]>();
     for (const t of transactions) {
       if (t.status === "rejected") continue;
-      const key = ${t.date}||;
+      const key = `${t.date}|${String(t.label).trim().toLowerCase()}|${t.amount_ttc}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(t.id);
     }
