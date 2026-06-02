@@ -899,99 +899,111 @@ export function SpreadsheetView() {
 
   function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !activeDoc) return;
+    if (!file) return;
     const isXlsx = /\.(xlsx|xls|ods)$/i.test(file.name);
-    const reader = new FileReader();
+    const fileName = file.name.replace(/\.(xlsx|xls|ods|csv)$/i, "").trim() || "Tableau importé";
 
-    reader.onload = (ev) => {
-      let newSheet: SpreadsheetSheet;
+    // Lecture et intégration dans un doc (existant ou auto-créé)
+    const doImport = (doc: SpreadsheetDoc, isNewDoc: boolean) => {
+      const reader = new FileReader();
 
-      if (isXlsx) {
-        // ── Import XLSX : toutes les feuilles, formules brutes ───────────
-        const data = new Uint8Array(ev.target?.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array", cellFormula: true, cellNF: true });
-        const fileBase = file.name.replace(/\.(xlsx|xls|ods)$/i, "");
+      reader.onload = (ev) => {
+        let importedSheets: SpreadsheetSheet[];
 
-        const importedSheets: SpreadsheetSheet[] = wb.SheetNames.map((sheetName, si) => {
-          const ws = wb.Sheets[sheetName];
-          const ref = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]) : { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
-          const numRows = ref.e.r - ref.s.r + 1;
-          const numCols = ref.e.c - ref.s.c + 1;
+        if (isXlsx) {
+          // ── Import XLSX : toutes les feuilles, formules brutes ───────────
+          const data = new Uint8Array(ev.target?.result as ArrayBuffer);
+          const wb = XLSX.read(data, { type: "array", cellFormula: true, cellNF: true });
+
+          importedSheets = wb.SheetNames.map((sheetName, si) => {
+            const ws = wb.Sheets[sheetName];
+            const ref = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]) : { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
+            const numRows = ref.e.r - ref.s.r + 1;
+            const numCols = ref.e.c - ref.s.c + 1;
+            const s: SpreadsheetSheet = {
+              id: `sheet_${Date.now()}_${si}`,
+              name: (wb.SheetNames.length === 1 ? fileName : sheetName).slice(0, 24),
+              cols: Math.max(DEFAULT_COLS, numCols),
+              rows: Math.max(DEFAULT_ROWS, numRows + 5),
+              cells: {},
+            };
+            for (let r = ref.s.r; r <= ref.e.r; r++) {
+              for (let c = ref.s.c; c <= ref.e.c; c++) {
+                const addr = XLSX.utils.encode_cell({ r, c });
+                const cell = ws[addr];
+                if (!cell) continue;
+                const col = c - ref.s.c;
+                const row = r - ref.s.r;
+                let value: string | number | null;
+                if (cell.f) {
+                  value = "=" + cell.f;
+                } else if (cell.t === "n") {
+                  value = cell.v as number;
+                } else {
+                  const raw = String(cell.v ?? "").trim();
+                  if (!raw) continue;
+                  value = raw;
+                }
+                s.cells[cellKey(col, row)] = { value };
+              }
+            }
+            return s;
+          });
+        } else {
+          // ── Import CSV ─────────────────────────────────────────────────
+          const text = ev.target?.result as string;
+          const rows = parseCSV(text);
+          const maxCols = Math.max(DEFAULT_COLS, ...rows.map(r => r.length));
           const s: SpreadsheetSheet = {
-            id: `sheet_${Date.now()}_${si}`,
-            name: (wb.SheetNames.length === 1 ? fileBase : sheetName).slice(0, 24),
-            cols: Math.max(DEFAULT_COLS, numCols),
-            rows: Math.max(DEFAULT_ROWS, numRows + 5),
+            id: `sheet_${Date.now()}`,
+            name: fileName.slice(0, 24),
+            cols: maxCols,
+            rows: Math.max(DEFAULT_ROWS, rows.length + 5),
             cells: {},
           };
-          for (let r = ref.s.r; r <= ref.e.r; r++) {
-            for (let c = ref.s.c; c <= ref.e.c; c++) {
-              const addr = XLSX.utils.encode_cell({ r, c });
-              const cell = ws[addr];
-              if (!cell) continue;
-              const col = c - ref.s.c;
-              const row = r - ref.s.r;
-              let value: string | number | null;
-              if (cell.f) {
-                value = "=" + cell.f;
-              } else if (cell.t === "n") {
-                value = cell.v as number;
-              } else {
-                const raw = String(cell.v ?? "").trim();
-                if (!raw) continue;
-                value = raw;
-              }
-              s.cells[cellKey(col, row)] = { value };
-            }
-          }
-          return s;
-        });
+          rows.forEach((row, r) => {
+            row.forEach((raw, c) => {
+              const trimmed = raw.trim();
+              if (!trimmed) return;
+              const normalized = trimmed
+                .replace(/\s/g, "")
+                .replace(",", ".")
+                .replace(/€/g, "")
+                .replace(/%/g, "");
+              const num = parseFloat(normalized);
+              s.cells[cellKey(c, r)] = { value: isNaN(num) ? trimmed : num };
+            });
+          });
+          importedSheets = [s];
+        }
 
-        const firstIdx = activeDoc.sheets.length;
-        const newDoc = { ...activeDoc, sheets: [...activeDoc.sheets, ...importedSheets] };
+        // Si nouveau doc, on remplace la feuille vide par défaut
+        const baseSheets = isNewDoc ? [] : doc.sheets;
+        const newDoc = { ...doc, sheets: [...baseSheets, ...importedSheets] };
         setActiveDoc(newDoc);
-        setActiveSheetIdx(firstIdx);
+        setActiveSheetIdx(isNewDoc ? 0 : baseSheets.length);
         setDirty(true);
         scheduleSave(newDoc);
         e.target.value = "";
-        return; // sortie anticipée, newDoc déjà sauvegardé
-      } else {
-        // ── Import CSV ─────────────────────────────────────────────────
-        const text = ev.target?.result as string;
-        const rows = parseCSV(text);
-        const maxCols = Math.max(DEFAULT_COLS, ...rows.map(r => r.length));
-        newSheet = {
-          id: `sheet_${Date.now()}`,
-          name: file.name.replace(/\.csv$/i, "").slice(0, 24),
-          cols: maxCols,
-          rows: Math.max(DEFAULT_ROWS, rows.length + 5),
-          cells: {},
-        };
-        rows.forEach((row, r) => {
-          row.forEach((raw, c) => {
-            const trimmed = raw.trim();
-            if (!trimmed) return;
-            const normalized = trimmed
-              .replace(/\s/g, "")
-              .replace(",", ".")
-              .replace(/€/g, "")
-              .replace(/%/g, "");
-            const num = parseFloat(normalized);
-            newSheet.cells[cellKey(c, r)] = { value: isNaN(num) ? trimmed : num };
-          });
-        });
-      }
+      };
 
-      const newDoc = { ...activeDoc, sheets: [...activeDoc.sheets, newSheet] };
-      setActiveDoc(newDoc);
-      setActiveSheetIdx(newDoc.sheets.length - 1);
-      setDirty(true);
-      scheduleSave(newDoc);
+      if (isXlsx) reader.readAsArrayBuffer(file);
+      else reader.readAsText(file, "utf-8");
     };
 
-    if (isXlsx) reader.readAsArrayBuffer(file);
-    else reader.readAsText(file, "utf-8");
-    e.target.value = "";
+    if (!activeDoc) {
+      // Pas de doc ouvert : créer automatiquement un doc depuis le nom du fichier
+      createSpreadsheet(fileName).then((newDoc) => {
+        setDocs(prev => [{ id: newDoc.id, name: newDoc.name, createdAt: newDoc.createdAt, updatedAt: newDoc.updatedAt }, ...prev]);
+        setActiveDoc(newDoc);
+        setActiveSheetIdx(0);
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        doImport(newDoc, true);
+      });
+    } else {
+      doImport(activeDoc, false);
+    }
   }
 
   function exportCSV() {
@@ -1106,9 +1118,15 @@ export function SpreadsheetView() {
 
         <div className="flex-1 overflow-auto">
           {docs.length === 0 && !creating && (
-            <p className="text-[10px] text-vscode-muted px-3 py-4">
-              Aucun tableau.<br />Cliquez sur « + Nouveau ».
-            </p>
+            <div className="px-3 py-4 space-y-2">
+              <p className="text-[10px] text-vscode-muted">
+                Aucun tableau.
+              </p>
+              <button
+                onClick={() => importInputRef.current?.click()}
+                className="w-full text-left text-[10px] text-vscode-muted hover:text-blue-300 flex items-center gap-1"
+              >📂 Importer un fichier</button>
+            </div>
           )}
           {docs.map(doc => (
             <button
@@ -1129,10 +1147,16 @@ export function SpreadsheetView() {
         <div className="flex-1 flex items-center justify-center flex-col gap-3 text-vscode-muted">
           <span className="text-5xl">📊</span>
           <p className="text-sm">Sélectionnez ou créez un tableau</p>
-          <button
-            onClick={() => setCreating(true)}
-            className="text-xs bg-vscode-accent hover:brightness-110 text-white px-4 py-1.5 rounded mt-1"
-          >+ Nouveau tableau</button>
+          <div className="flex gap-2 mt-1">
+            <button
+              onClick={() => setCreating(true)}
+              className="text-xs bg-vscode-accent hover:brightness-110 text-white px-4 py-1.5 rounded"
+            >+ Nouveau tableau</button>
+            <button
+              onClick={() => importInputRef.current?.click()}
+              className="text-xs border border-vscode-border hover:border-vscode-accent text-vscode-muted hover:text-vscode-text px-4 py-1.5 rounded"
+            >📂 Importer XLSX / CSV</button>
+          </div>
         </div>
       ) : (
         <div className="flex-1 flex flex-col min-w-0">
