@@ -1041,6 +1041,36 @@ export function SpreadsheetView() {
     URL.revokeObjectURL(url);
   }
 
+  function exportXLSX() {
+    if (!activeDoc) return;
+    const wb = XLSX.utils.book_new();
+    for (const s of activeDoc.sheets) {
+      let maxRow = 0, maxCol = 0;
+      for (const key of Object.keys(s.cells)) {
+        const pos = parseCell(key);
+        if (pos) { maxRow = Math.max(maxRow, pos.row); maxCol = Math.max(maxCol, pos.col); }
+      }
+      const aoa: (string | number | null)[][] = [];
+      for (let r = 0; r <= maxRow; r++) {
+        const row: (string | number | null)[] = [];
+        for (let c = 0; c <= maxCol; c++) {
+          row.push(s.cells[cellKey(c, r)]?.value ?? null);
+        }
+        aoa.push(row);
+      }
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      XLSX.utils.book_append_sheet(wb, ws, s.name.slice(0, 31));
+    }
+    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${activeDoc.name}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function displayValue(key: string): string {
     const cellData = sheet?.cells[key];
     const raw = cellData?.value;
@@ -1385,8 +1415,13 @@ export function SpreadsheetView() {
             <button
               onClick={exportCSV}
               className="h-6 px-2 flex items-center gap-1 rounded border border-vscode-border text-vscode-muted hover:text-vscode-text hover:bg-vscode-sidebar text-[10px] transition-colors"
-              title="Exporter la feuille en CSV"
-            >📤 Exporter</button>
+              title="Exporter la feuille active en CSV"
+            >📤 CSV</button>
+            <button
+              onClick={exportXLSX}
+              className="h-6 px-2 flex items-center gap-1 rounded border border-vscode-border text-vscode-muted hover:text-vscode-text hover:bg-vscode-sidebar text-[10px] transition-colors"
+              title="Exporter toutes les feuilles en XLSX"
+            >📤 XLSX</button>
           </div>
 
           {/* ── Grille + Variables ─────────────────────────────────────── */}
