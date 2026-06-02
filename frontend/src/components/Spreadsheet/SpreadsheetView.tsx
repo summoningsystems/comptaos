@@ -897,112 +897,120 @@ export function SpreadsheetView() {
     scheduleSave(newDoc);
   }
 
-  function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     const isXlsx = /\.(xlsx|xls|ods)$/i.test(file.name);
     const fileName = file.name.replace(/\.(xlsx|xls|ods|csv)$/i, "").trim() || "Tableau importé";
 
-    // Lecture et intégration dans un doc (existant ou auto-créé)
-    const doImport = (doc: SpreadsheetDoc, isNewDoc: boolean) => {
-      const reader = new FileReader();
-
-      reader.onload = (ev) => {
-        let importedSheets: SpreadsheetSheet[];
-
-        if (isXlsx) {
-          // ── Import XLSX : toutes les feuilles, formules brutes ───────────
-          const data = new Uint8Array(ev.target?.result as ArrayBuffer);
-          const wb = XLSX.read(data, { type: "array", cellFormula: true, cellNF: true });
-
-          importedSheets = wb.SheetNames.map((sheetName, si) => {
-            const ws = wb.Sheets[sheetName];
-            const ref = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]) : { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
-            const numRows = ref.e.r - ref.s.r + 1;
-            const numCols = ref.e.c - ref.s.c + 1;
-            const s: SpreadsheetSheet = {
-              id: `sheet_${Date.now()}_${si}`,
-              name: (wb.SheetNames.length === 1 ? fileName : sheetName).slice(0, 24),
-              cols: Math.max(DEFAULT_COLS, numCols),
-              rows: Math.max(DEFAULT_ROWS, numRows + 5),
-              cells: {},
-            };
-            for (let r = ref.s.r; r <= ref.e.r; r++) {
-              for (let c = ref.s.c; c <= ref.e.c; c++) {
-                const addr = XLSX.utils.encode_cell({ r, c });
-                const cell = ws[addr];
-                if (!cell) continue;
-                const col = c - ref.s.c;
-                const row = r - ref.s.r;
-                let value: string | number | null;
-                if (cell.f) {
-                  value = "=" + cell.f;
-                } else if (cell.t === "n") {
-                  value = cell.v as number;
-                } else {
-                  const raw = String(cell.v ?? "").trim();
-                  if (!raw) continue;
-                  value = raw;
+    // ── 1. Lecture du fichier (wrappée en Promise) ─────────────────────────
+    let importedSheets: SpreadsheetSheet[];
+    try {
+      importedSheets = await new Promise<SpreadsheetSheet[]>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(reader.error);
+        reader.onload = (ev) => {
+          try {
+            let sheets: SpreadsheetSheet[];
+            if (isXlsx) {
+              const data = new Uint8Array(ev.target?.result as ArrayBuffer);
+              const wb = XLSX.read(data, { type: "array", cellFormula: true, cellNF: true });
+              sheets = wb.SheetNames.map((sheetName, si) => {
+                const ws = wb.Sheets[sheetName];
+                const ref = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]) : { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
+                const numRows = ref.e.r - ref.s.r + 1;
+                const numCols = ref.e.c - ref.s.c + 1;
+                const s: SpreadsheetSheet = {
+                  id: `sheet_${Date.now()}_${si}`,
+                  name: (wb.SheetNames.length === 1 ? fileName : sheetName).slice(0, 24),
+                  cols: Math.max(DEFAULT_COLS, numCols),
+                  rows: Math.max(DEFAULT_ROWS, numRows + 5),
+                  cells: {},
+                };
+                for (let r = ref.s.r; r <= ref.e.r; r++) {
+                  for (let c = ref.s.c; c <= ref.e.c; c++) {
+                    const addr = XLSX.utils.encode_cell({ r, c });
+                    const cell = ws[addr];
+                    if (!cell) continue;
+                    const col = c - ref.s.c;
+                    const row = r - ref.s.r;
+                    let value: string | number | null;
+                    if (cell.f) {
+                      value = "=" + cell.f;
+                    } else if (cell.t === "n") {
+                      value = cell.v as number;
+                    } else {
+                      const raw = String(cell.v ?? "").trim();
+                      if (!raw) continue;
+                      value = raw;
+                    }
+                    s.cells[cellKey(col, row)] = { value };
+                  }
                 }
-                s.cells[cellKey(col, row)] = { value };
-              }
+                return s;
+              });
+            } else {
+              const text = ev.target?.result as string;
+              const rows = parseCSV(text);
+              const maxCols = Math.max(DEFAULT_COLS, ...rows.map(r => r.length));
+              const s: SpreadsheetSheet = {
+                id: `sheet_${Date.now()}`,
+                name: fileName.slice(0, 24),
+                cols: maxCols,
+                rows: Math.max(DEFAULT_ROWS, rows.length + 5),
+                cells: {},
+              };
+              rows.forEach((row, r) => {
+                row.forEach((raw, c) => {
+                  const trimmed = raw.trim();
+                  if (!trimmed) return;
+                  const normalized = trimmed
+                    .replace(/\s/g, "")
+                    .replace(",", ".")
+                    .replace(/€/g, "")
+                    .replace(/%/g, "");
+                  const num = parseFloat(normalized);
+                  s.cells[cellKey(c, r)] = { value: isNaN(num) ? trimmed : num };
+                });
+              });
+              sheets = [s];
             }
-            return s;
-          });
-        } else {
-          // ── Import CSV ─────────────────────────────────────────────────
-          const text = ev.target?.result as string;
-          const rows = parseCSV(text);
-          const maxCols = Math.max(DEFAULT_COLS, ...rows.map(r => r.length));
-          const s: SpreadsheetSheet = {
-            id: `sheet_${Date.now()}`,
-            name: fileName.slice(0, 24),
-            cols: maxCols,
-            rows: Math.max(DEFAULT_ROWS, rows.length + 5),
-            cells: {},
-          };
-          rows.forEach((row, r) => {
-            row.forEach((raw, c) => {
-              const trimmed = raw.trim();
-              if (!trimmed) return;
-              const normalized = trimmed
-                .replace(/\s/g, "")
-                .replace(",", ".")
-                .replace(/€/g, "")
-                .replace(/%/g, "");
-              const num = parseFloat(normalized);
-              s.cells[cellKey(c, r)] = { value: isNaN(num) ? trimmed : num };
-            });
-          });
-          importedSheets = [s];
-        }
-
-        // Si nouveau doc, on remplace la feuille vide par défaut
-        const baseSheets = isNewDoc ? [] : doc.sheets;
-        const newDoc = { ...doc, sheets: [...baseSheets, ...importedSheets] };
-        setActiveDoc(newDoc);
-        setActiveSheetIdx(isNewDoc ? 0 : baseSheets.length);
-        setDirty(true);
-        scheduleSave(newDoc);
-        e.target.value = "";
-      };
-
-      if (isXlsx) reader.readAsArrayBuffer(file);
-      else reader.readAsText(file, "utf-8");
-    };
-
-    if (!activeDoc) {
-      // Pas de doc ouvert : créer automatiquement un doc depuis le nom du fichier
-      createSpreadsheet(fileName).then((newDoc) => {
-        setDocs(prev => [{ id: newDoc.id, name: newDoc.name, createdAt: newDoc.createdAt, updatedAt: newDoc.updatedAt }, ...prev]);
-        setActiveDoc(newDoc);
-        setActiveSheetIdx(0);
-        undoStackRef.current = [];
-        redoStackRef.current = [];
-        doImport(newDoc, true);
+            resolve(sheets);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        if (isXlsx) reader.readAsArrayBuffer(file);
+        else reader.readAsText(file, "utf-8");
       });
+    } catch {
+      alert("Impossible de lire le fichier. Vérifiez qu'il s'agit d'un fichier XLSX, XLS, ODS ou CSV valide.");
+      e.target.value = "";
+      return;
+    }
+
+    e.target.value = "";
+
+    // ── 2. Intégration dans le doc ─────────────────────────────────────────
+    if (!activeDoc) {
+      // Créer un nouveau doc, puis le sauvegarder directement avec les feuilles importées
+      const emptyDoc = await createSpreadsheet(fileName);
+      const finalDoc = { ...emptyDoc, sheets: importedSheets };
+      const saved = await saveSpreadsheet(finalDoc);
+      setDocs(prev => [
+        { id: saved.id, name: saved.name, createdAt: saved.createdAt, updatedAt: saved.updatedAt },
+        ...prev,
+      ]);
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      setActiveDoc(saved);
+      setActiveSheetIdx(0);
     } else {
-      doImport(activeDoc, false);
+      const newDoc = { ...activeDoc, sheets: [...activeDoc.sheets, ...importedSheets] };
+      setActiveDoc(newDoc);
+      setActiveSheetIdx(activeDoc.sheets.length);
+      setDirty(true);
+      scheduleSave(newDoc);
     }
   }
 
