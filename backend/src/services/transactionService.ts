@@ -22,6 +22,17 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// Taux TVA légaux français
+const STANDARD_VAT_RATES = [0, 2.1, 5.5, 10, 20];
+
+/** Snap un taux calculé vers le taux légal le plus proche si écart < 0.5 pt */
+function snapVatRate(rate: number): number {
+  for (const std of STANDARD_VAT_RATES) {
+    if (Math.abs(rate - std) <= 0.5) return std;
+  }
+  return rate;
+}
+
 function deriveVatRate(txn: Transaction): number {
   if (typeof txn.vat_rate === "number" && Number.isFinite(txn.vat_rate)) {
     return Math.max(0, txn.vat_rate);
@@ -32,14 +43,25 @@ function deriveVatRate(txn: Transaction): number {
   const htAbs = Math.max(0, ttcAbs - vatAbs);
   if (htAbs <= 0) return 0;
 
-  return round2((vatAbs / htAbs) * 100);
+  return snapVatRate(round2((vatAbs / htAbs) * 100));
 }
 
 function normalizeTransaction(txn: Transaction): Transaction {
+  // Si des splits sont définis, on en déduit HT/TVA/taux effectif
+  if (txn.vat_splits && txn.vat_splits.length > 0) {
+    const totalHt = round2(
+      txn.vat_splits.reduce((s, sp) => s + round2(sp.amount_ttc / (1 + sp.rate / 100)), 0)
+    );
+    const totalVat = round2((txn.amount_ttc ?? 0) - totalHt);
+    const effectiveRate = Math.abs(totalHt) > 0
+      ? snapVatRate(round2((Math.abs(totalVat) / Math.abs(totalHt)) * 100))
+      : 0;
+    return { ...txn, vat_rate: effectiveRate, amount_ht: totalHt, vat: totalVat };
+  }
+
   const rate = deriveVatRate(txn);
   const factor = 1 + rate / 100;
 
-  // Si le taux est renseigné, les montants HT/TVA sont recalculés pour rester cohérents.
   const amount_ht = factor > 0 ? round2((txn.amount_ttc ?? 0) / factor) : round2(txn.amount_ttc ?? 0);
   const vat = round2((txn.amount_ttc ?? 0) - amount_ht);
 

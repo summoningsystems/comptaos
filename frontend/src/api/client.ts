@@ -393,6 +393,7 @@ export interface VatTransactionDetail {
   amount_ht: number;
   vat: number;
   vat_rate: number;
+  vat_splits: { rate: number; amount_ttc: number }[];
   direction: "collected" | "deductible";
   quarter: string;
 }

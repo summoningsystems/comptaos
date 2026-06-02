@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { fetchVatSummary, updateTransaction, type VatQuarterData, type VatSummaryData, type VatTransactionDetail } from "../../api/client";
 import type { Category } from "../../types";
 
+type VatSplit = { rate: number; amount_ttc: number };
+
 const CATEGORIES: Category[] = [
   "hosting", "software", "salary", "travel", "restaurant", "food",
   "taxes", "equipment", "subscription", "rent", "legal", "insurance", "misc",
@@ -139,6 +141,132 @@ function EditableVatRateCell({
   );
 }
 
+// ── Composant SplitEditor ─────────────────────────────────────────────────────
+function SplitEditor({
+  amountTtc,
+  initialSplits,
+  disabled,
+  onSave,
+  onCancel,
+}: {
+  amountTtc: number;
+  initialSplits: VatSplit[];
+  disabled: boolean;
+  onSave: (splits: VatSplit[]) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<VatSplit[]>(
+    initialSplits.length >= 2
+      ? initialSplits
+      : [
+          { rate: 10, amount_ttc: 0 },
+          { rate: 20, amount_ttc: amountTtc },
+        ]
+  );
+
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const sign = amountTtc < 0 ? -1 : 1;
+  const sumTtc = r2(draft.reduce((s, sp) => s + sp.amount_ttc, 0));
+  const remaining = r2(amountTtc - sumTtc);
+  const isValid = Math.abs(remaining) < 0.005 && draft.length >= 2;
+
+  function updateRate(i: number, rate: number) {
+    setDraft((d) => d.map((sp, idx) => idx === i ? { ...sp, rate } : sp));
+  }
+
+  function updateAmount(i: number, absVal: number) {
+    setDraft((d) => d.map((sp, idx) => idx === i ? { ...sp, amount_ttc: r2(sign * absVal) } : sp));
+  }
+
+  function fillRemaining(i: number) {
+    setDraft((d) => {
+      const otherSum = d.reduce((s, sp, idx) => idx !== i ? s + sp.amount_ttc : s, 0);
+      return d.map((sp, idx) => idx === i ? { ...sp, amount_ttc: r2(amountTtc - otherSum) } : sp);
+    });
+  }
+
+  function addRow() {
+    setDraft((d) => [...d, { rate: 20, amount_ttc: remaining }]);
+  }
+
+  function removeRow(i: number) {
+    setDraft((d) => d.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div className="rounded bg-vscode-bg border border-vscode-accent/40 px-4 py-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-semibold text-vscode-muted uppercase tracking-wide">
+          Ventilation TVA — Total TTC : {Math.abs(amountTtc).toFixed(2)} €
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        {draft.map((split, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <select
+              value={split.rate}
+              onChange={(e) => updateRate(i, Number(e.target.value))}
+              className="bg-vscode-bg border border-vscode-border text-vscode-text text-xs rounded px-2 py-1 focus:outline-none focus:border-vscode-accent"
+            >
+              {VAT_RATE_PRESETS.map((r) => (
+                <option key={r} value={r}>{r} %</option>
+              ))}
+            </select>
+            <span className="text-vscode-muted text-xs">TTC</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={Math.abs(split.amount_ttc).toFixed(2)}
+              onChange={(e) => updateAmount(i, parseFloat(e.target.value) || 0)}
+              className="w-24 bg-vscode-bg border border-vscode-border text-vscode-text text-xs rounded px-2 py-1 text-right font-mono focus:outline-none focus:border-vscode-accent"
+            />
+            <span className="text-vscode-muted text-xs">€</span>
+            <button
+              onClick={() => fillRemaining(i)}
+              title="Mettre le solde restant"
+              className="text-[10px] text-vscode-muted hover:text-blue-300 border border-vscode-border/50 rounded px-1.5 py-0.5"
+            >↻</button>
+            <button
+              onClick={() => removeRow(i)}
+              className="text-[10px] text-vscode-muted hover:text-red-400 ml-1"
+            >✕</button>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3 pt-1 flex-wrap">
+        <button
+          onClick={addRow}
+          className="text-xs text-vscode-muted hover:text-vscode-text border border-vscode-border rounded px-2 py-1"
+        >+ Ajouter un taux</button>
+
+        <span className={`text-xs font-mono ${isValid ? "text-green-400" : "text-orange-400"}`}>
+          {isValid ? "✓ Équilibré" : `Restant : ${Math.abs(remaining).toFixed(2)} €`}
+        </span>
+
+        <div className="ml-auto flex gap-2">
+          <button
+            onClick={() => void onSave([])}
+            disabled={disabled}
+            className="text-xs text-vscode-muted hover:text-red-400 border border-vscode-border/50 rounded px-2 py-1"
+          >Supprimer la ventilation</button>
+          <button
+            onClick={onCancel}
+            className="text-xs text-vscode-muted hover:text-vscode-text border border-vscode-border rounded px-2 py-1"
+          >Annuler</button>
+          <button
+            onClick={() => void onSave(draft)}
+            disabled={!isValid || disabled}
+            className="text-xs bg-vscode-accent/20 text-vscode-accent border border-vscode-accent/30 rounded px-3 py-1 disabled:opacity-40"
+          >Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Ca3Panel({ quarters, total, year }: { quarters: VatQuarterData[]; total: VatSummaryData["total"]; year: string }) {
   const [selectedQ, setSelectedQ] = useState<string>("annual");
 
@@ -249,6 +377,7 @@ export function VatView() {
   const [loading, setLoading] = useState(false);
   const [detailQuarter, setDetailQuarter] = useState<string>("annual");
   const [savingIds, setSavingIds] = useState<string[]>([]);
+  const [splitEditId, setSplitEditId] = useState<string | null>(null);
 
   async function load(y: string) {
     setLoading(true);
@@ -260,7 +389,7 @@ export function VatView() {
     }
   }
 
-  async function saveDetailPatch(id: string, patch: { label?: string; category?: Category; vat_rate?: number }) {
+  async function saveDetailPatch(id: string, patch: { label?: string; category?: Category; vat_rate?: number; vat_splits?: VatSplit[] }) {
     setSavingIds((current) => current.includes(id) ? current : [...current, id]);
     try {
       await updateTransaction(id, patch);
@@ -422,40 +551,87 @@ export function VatView() {
                 <tbody>
                   {data.details
                     .filter((item) => detailQuarter === "annual" || item.quarter === detailQuarter)
-                    .map((item) => (
-                      <tr key={item.id} className="border-t border-vscode-border">
-                        <td className="px-3 py-2 text-vscode-muted font-mono">{item.date}</td>
-                        <td className="px-3 py-2 text-vscode-text min-w-[220px]">
-                          <EditableTextCell
-                            value={item.label}
-                            disabled={savingIds.includes(item.id)}
-                            onSave={(label) => saveDetailPatch(item.id, { label })}
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-vscode-muted min-w-[140px]">
-                          <EditableCategoryCell
-                            value={item.category as Category}
-                            disabled={savingIds.includes(item.id)}
-                            onSave={(category) => saveDetailPatch(item.id, { category })}
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-vscode-text">
-                          <EditableVatRateCell
-                            value={item.vat_rate}
-                            disabled={savingIds.includes(item.id)}
-                            onSave={(vat_rate) => saveDetailPatch(item.id, { vat_rate })}
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-vscode-text">{item.amount_ht.toFixed(2)} €</td>
-                        <td className={`px-3 py-2 text-right font-mono ${item.direction === "collected" ? "text-blue-300" : "text-green-300"}`}>{Math.abs(item.vat).toFixed(2)} €</td>
-                        <td className={`px-3 py-2 text-right font-mono ${item.amount_ttc >= 0 ? "text-green-400" : "text-red-400"}`}>{item.amount_ttc.toFixed(2)} €</td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-flex rounded px-2 py-0.5 text-[10px] ${item.direction === "collected" ? "bg-blue-900/40 text-blue-300" : "bg-green-900/40 text-green-300"}`}>
-                            {item.direction === "collected" ? "TVA collectée" : "TVA déductible"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    .flatMap((item) => {
+                      const hasSplits = item.vat_splits && item.vat_splits.length >= 2;
+                      const isEditingSplit = splitEditId === item.id;
+                      const isSaving = savingIds.includes(item.id);
+
+                      async function saveSplits(splits: VatSplit[]) {
+                        // splits vide = supprimer la ventilation
+                        await saveDetailPatch(item.id, { vat_splits: splits });
+                        setSplitEditId(null);
+                      }
+
+                      const mainRow = (
+                        <tr key={item.id} className="border-t border-vscode-border">
+                          <td className="px-3 py-2 text-vscode-muted font-mono">{item.date}</td>
+                          <td className="px-3 py-2 text-vscode-text min-w-[220px]">
+                            <EditableTextCell
+                              value={item.label}
+                              disabled={isSaving}
+                              onSave={(label) => saveDetailPatch(item.id, { label })}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-vscode-muted min-w-[140px]">
+                            <EditableCategoryCell
+                              value={item.category as Category}
+                              disabled={isSaving}
+                              onSave={(category) => saveDetailPatch(item.id, { category })}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-vscode-text">
+                            {hasSplits ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="text-xs text-vscode-muted">~{item.vat_rate.toFixed(1)} %</span>
+                                <button
+                                  onClick={() => setSplitEditId(isEditingSplit ? null : item.id)}
+                                  className="text-[10px] bg-blue-900/30 text-blue-300 border border-blue-800/40 rounded px-1.5 py-0.5 hover:bg-blue-900/50"
+                                >multi ✏</button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-end gap-1">
+                                <EditableVatRateCell
+                                  value={item.vat_rate}
+                                  disabled={isSaving}
+                                  onSave={(vat_rate) => saveDetailPatch(item.id, { vat_rate })}
+                                />
+                                <button
+                                  onClick={() => setSplitEditId(isEditingSplit ? null : item.id)}
+                                  title="Ventiler la TVA (multi-taux)"
+                                  className="text-[11px] text-vscode-muted hover:text-blue-300 ml-0.5"
+                                >⊞</button>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-vscode-text">{item.amount_ht.toFixed(2)} €</td>
+                          <td className={`px-3 py-2 text-right font-mono ${item.direction === "collected" ? "text-blue-300" : "text-green-300"}`}>{Math.abs(item.vat).toFixed(2)} €</td>
+                          <td className={`px-3 py-2 text-right font-mono ${item.amount_ttc >= 0 ? "text-green-400" : "text-red-400"}`}>{item.amount_ttc.toFixed(2)} €</td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex rounded px-2 py-0.5 text-[10px] ${item.direction === "collected" ? "bg-blue-900/40 text-blue-300" : "bg-green-900/40 text-green-300"}`}>
+                              {item.direction === "collected" ? "TVA collectée" : "TVA déductible"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+
+                      if (!isEditingSplit) return [mainRow];
+
+                      const splitRow = (
+                        <tr key={`${item.id}-split`} className="bg-vscode-panel/60">
+                          <td colSpan={8} className="px-4 py-3">
+                            <SplitEditor
+                              amountTtc={item.amount_ttc}
+                              initialSplits={item.vat_splits ?? []}
+                              disabled={isSaving}
+                              onSave={saveSplits}
+                              onCancel={() => setSplitEditId(null)}
+                            />
+                          </td>
+                        </tr>
+                      );
+
+                      return [mainRow, splitRow];
+                    })}
                   {data.details.filter((item) => detailQuarter === "annual" || item.quarter === detailQuarter).length === 0 && (
                     <tr className="border-t border-vscode-border">
                       <td colSpan={8} className="px-3 py-6 text-center text-vscode-muted">

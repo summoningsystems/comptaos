@@ -1,3 +1,8 @@
+export interface VatSplit {
+  rate: number;       // taux en % : 0, 2.1, 5.5, 10, 20
+  amount_ttc: number; // montant TTC (signe = signe de la transaction)
+}
+
 export interface Transaction {
   id: string;
   date: string;
@@ -5,6 +10,7 @@ export interface Transaction {
   amount_ht: number;
   vat: number;
   vat_rate?: number;
+  vat_splits?: VatSplit[];
   amount_ttc: number;
   currency: string;
   category: Category;

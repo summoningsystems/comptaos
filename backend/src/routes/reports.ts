@@ -112,6 +112,7 @@ export async function reportsRoutes(app: FastifyInstance) {
           amount_ht: parseFloat(t.amount_ht.toFixed(2)),
           vat: parseFloat(t.vat.toFixed(2)),
           vat_rate: inferredVatRate,
+          vat_splits: t.vat_splits ?? [],
           direction,
           quarter,
         };
